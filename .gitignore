@@ -1,0 +1,29 @@
+# build artifacts
+service/target/
+*.so
+
+# model + dataset binaries (shipped via GitHub releases)
+model/*
+!model/README.md
+data/*
+!data/README.md
+!data/.gitkeep
+
+# runtime feedback
+reports/
+failed/
+malformed/
+*.db
+
+# python
+__pycache__/
+.venv/
+*.pyc
+runs/
+logs/
+
+# secrets / env
+.env
+
+# zips
+*.zip

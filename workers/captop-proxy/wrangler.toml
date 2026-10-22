@@ -1,0 +1,6 @@
+name = "captop-proxy"
+main = "cloudflare-worker.js"
+compatibility_date = "2024-01-28"
+
+[vars]
+ORIGIN_URL = "captop.duckdns.org"

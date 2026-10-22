@@ -1,0 +1,15 @@
+services:
+  solver-api:
+    build:
+      context: .
+      dockerfile: service/Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./reports:/app/reports
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

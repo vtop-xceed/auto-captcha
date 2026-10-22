@@ -1,0 +1,6 @@
+name = "captop"
+main = "cloudflare_worker.js"
+compatibility_date = "2024-01-28"
+
+[vars]
+ORIGIN_URL = "sykik.pythonanywhere.com"

@@ -1,0 +1,40 @@
+name: service
+
+on:
+  push:
+    branches: [main]
+    paths: ["service/**", ".github/workflows/service.yml"]
+  pull_request:
+    paths: ["service/**", ".github/workflows/service.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Format
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy -- -D warnings
+      - name: Tests
+        run: cargo test
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stub model files (build check only)
+        run: |
+          mkdir -p model
+          touch model/captcha_model.onnx model/captcha_model.onnx.data
+      - name: Build image
+        run: docker build -f service/Dockerfile .

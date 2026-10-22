@@ -1,0 +1,28 @@
+name: training
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "training/**"
+      - ".github/workflows/training.yml"
+  pull_request:
+    paths:
+      - "training/**"
+      - ".github/workflows/training.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: ruff (syntax + obvious lint)
+        run: pipx run ruff check training --line-length 100
+      - name: compile check
+        run: python -m py_compile training/*.py

@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sykik Captop - Index the Dataset</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .online-indicator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 16px;
+            color: var(--muted);
+            font-size: 0.65rem;
+            text-transform: lowercase;
+        }
+
+        .online-dot {
+            width: 6px;
+            height: 6px;
+            background-color: #22c55e;
+            border-radius: 50%;
+            box-shadow: 0 0 6px rgba(34, 197, 94, 0.4);
+            animation: pulse-glow 2s infinite ease-in-out;
+        }
+
+        @keyframes pulse-glow {
+            0% {
+                opacity: 0.4;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 1;
+                transform: scale(1.1);
+            }
+
+            100% {
+                opacity: 0.4;
+                transform: scale(1);
+            }
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+</head>
+
+<body>
+    <div id="contrib-banner" class="banner subtle">
+        <span>Do 10 contributions to add your name to the contributors list</span>
+    </div>
+
+    <!-- Completion celebration toast -->
+    <div id="completion-toast" class="completion-toast">
+        🎉 Your vote completed this image!
+    </div>
+
+
+    <div id="achievement-modal" class="modal-overlay">
+        <div class="modal">
+            <button class="modal-close-btn" onclick="closeAchievement()">
+                <span class="material-symbols-outlined">close</span>
+            </button>
+            <span class="material-symbols-outlined"
+                style="font-size: 48px; margin-bottom: 16px; color: gold;">workspace_premium</span>
+            <h2>LEVEL UP!</h2>
+            <p>You've done 10+ contributions. Add your name to our list of heroes.</p>
+            <input type="text" id="contributor-name" placeholder="YOUR NAME" maxlength="30">
+            <input type="url" id="contributor-url" placeholder="PROFILE URL (OPTIONAL)">
+            <button class="submit-btn" onclick="submitContributor()">SAVE & CONTINUE</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <h1 id="logo">Captop</h1>
+        <p class="subtitle">by <a href="https://github.com/sykikxo" target="_blank" rel="noopener noreferrer">sykik</a>
+            / help index the dataset</p>
+        <p class="description">Type exactly what you see in the captcha image below. Your contributions help build a
+            high-quality labeled dataset that will be open-sourced on my GitHub profile for the community.</p>
+
+        <div class="contrib-counter">
+            your contributions: <span id="user-contrib-count">0</span>
+            <span id="contrib-plus-one" class="contrib-plus-one">+1</span>
+        </div>
+
+        <div class="progress-container">
+            <div class="progress-info">
+                <span>INDEXING PROGRESS (<span id="progress-percent">0</span>%)</span>
+                <span class="progress-count-wrapper">
+                    <span id="progress-text">0/0</span>
+                    <span id="progress-plus-one" class="progress-plus-one">+1</span>
+                </span>
+            </div>
+            <div class="progress-bar-bg">
+                <div id="progress-fill" class="progress-bar-fill"></div>
+            </div>
+        </div>
+
+        <div class="captcha-card" id="main-flow">
+            <div class="captcha-image-wrapper">
+                <img id="captcha-img" src="" alt="LOADING...">
+            </div>
+            <div class="input-group">
+                <input type="text" id="label-input" placeholder="LABEL" maxlength="10" autocomplete="off" autofocus>
+            </div>
+            <div class="submit-btn-wrapper">
+                <span id="milestone-badge" class="milestone-badge">10 🏆</span>
+                <button id="submit-btn" class="submit-btn">
+                    <span>SUBMIT</span>
+                    <span class="material-symbols-outlined">arrow_forward</span>
+                </button>
+            </div>
+            <p class="hotkey-hint">press <kbd>enter</kbd> to commit</p>
+            <div class="online-indicator">
+                <span class="online-dot"></span>
+                <span id="online-count-text">online - 1 people</span>
+            </div>
+        </div>
+
+        <div id="finished-view" style="display: none; text-align: center;">
+            <p style="font-size: 1.25rem; color: var(--accent); font-weight: 700;">All done! Thank you for your help.
+            </p>
+        </div>
+
+        <!-- Leaderboard -->
+        <div id="leaderboard-section" class="leaderboard">
+            <h3>Top Contributors</h3>
+            <ul id="leaderboard-list" class="leaderboard-list">
+                <!-- Populated by JS -->
+            </ul>
+            <div id="leaderboard-user-rank" class="leaderboard-user-rank" style="display: none;">
+                <span class="your-rank-label">Your Rank</span>
+                <span class="your-rank-value">#<span id="user-rank-number">-</span> · <span
+                        id="user-rank-contribs">0</span> contributions</span>
+            </div>
+            <div id="leaderboard-timer" class="leaderboard-timer">
+                updates in <span id="timer-countdown">--:--</span>
+            </div>
+        </div>
+
+    </div>
+
+    <footer class="footer">
+        <a href="https://github.com/sykikxo" target="_blank" rel="noopener noreferrer">
+            <svg height="16" width="16" viewBox="0 0 16 16" fill="currentColor"
+                style="display: inline-block; vertical-align: middle;">
+                <path
+                    d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z">
+                </path>
+            </svg>
+            SYKIK
+        </a>
+    </footer>
+
+    <script>
+        let currentImageId = null;
+        let localContribCount = parseInt(localStorage.getItem('contribCount') || '0');
+        let hasReachedMilestone = localStorage.getItem('reachedMilestone') === 'true';
+        let isProjectCompleted = false;
+
+        function setCookie(name, value, days) {
+            const date = new Date();
+            date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+            const expires = "expires=" + date.toUTCString();
+            document.cookie = name + "=" + value + ";" + expires + ";path=/";
+        }
+
+        function getCookie(name) {
+            const nameEQ = name + "=";
+            const ca = document.cookie.split(';');
+            for (let i = 0; i < ca.length; i++) {
+                let c = ca[i];
+                while (c.charAt(0) == ' ') c = c.substring(1, c.length);
+                if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length, c.length);
+            }
+            return null;
+        }
+
+        function closeBanner() {
+            document.getElementById('contrib-banner').style.display = 'none';
+            setCookie('banner_hidden', 'true', 30);
+        }
+
+        function checkBanner() {
+            if (getCookie('banner_hidden') === 'true' || hasReachedMilestone || localContribCount >= 10) {
+                document.getElementById('contrib-banner').style.display = 'none';
+                document.getElementById('milestone-badge').classList.remove('show');
+            } else if (localContribCount >= 8 && localContribCount < 10) {
+                // Show badge if close to milestone on page load
+                document.getElementById('milestone-badge').classList.add('show');
+                document.getElementById('milestone-badge').textContent = `${10 - localContribCount} to go!`;
+            }
+        }
+
+        async function loadNext() {
+            try {
+                const response = await fetch('/api/next_captcha');
+                if (response.status === 404) {
+                    // Try to get progress one last time or just set completion
+                    setCompletionState();
+                    return;
+                }
+                const data = await response.json();
+
+                currentImageId = data.id;
+                document.getElementById('captcha-img').src = `/captchas/${data.filename}`;
+                document.getElementById('label-input').value = '';
+                document.getElementById('submit-btn').disabled = true;
+                document.getElementById('label-input').focus();
+
+                // Update progress stats from server
+                const progress = data.progress;
+                updateProgressBar(progress.completed, progress.total, progress.percent);
+
+                // Update user contribution count
+                if (data.user_contributions !== undefined) {
+                    localContribCount = data.user_contributions;
+                    localStorage.setItem('contribCount', localContribCount);
+                    document.getElementById('user-contrib-count').textContent = localContribCount;
+
+                    // Hide banner if user has enough contributions
+                    if (localContribCount >= 10 || hasReachedMilestone) {
+                        document.getElementById('contrib-banner').style.display = 'none';
+                        document.getElementById('milestone-badge').classList.remove('show');
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to load captcha:', err);
+            }
+        }
+
+        function triggerFireworks() {
+            const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 1000 };
+
+            function randomInRange(min, max) {
+                return Math.random() * (max - min) + min;
+            }
+
+            setInterval(function () {
+                confetti({ ...defaults, particleCount: 40, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } });
+                confetti({ ...defaults, particleCount: 40, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } });
+            }, 250);
+        }
+
+        function setCompletionState() {
+            if (isProjectCompleted) return;
+            isProjectCompleted = true;
+
+            // Logo Aura & Glow
+            document.getElementById('logo').classList.add('completed');
+
+            // Celebration Fireworks
+            triggerFireworks();
+
+            // Disable Input
+            const labelInput = document.getElementById('label-input');
+            labelInput.disabled = true;
+            labelInput.placeholder = 'COMPLETED';
+            labelInput.value = 'THANKS!';
+
+            // Disable Button
+            const submitBtn = document.getElementById('submit-btn');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span>PROJECT COMPLETE!</span>';
+
+            // Hide hotkey hint
+            document.querySelector('.hotkey-hint').style.display = 'none';
+        }
+
+        function updateProgressBar(completed, total, percent) {
+            document.getElementById('progress-text').textContent = `${completed} / ${total}`;
+            document.getElementById('progress-percent').textContent = percent.toFixed(2);
+            document.getElementById('progress-fill').style.width = `${percent}%`;
+
+            if (percent >= 100) {
+                setCompletionState();
+            }
+        }
+
+        function showCompletionToast() {
+            const toast = document.getElementById('completion-toast');
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 2500);
+        }
+
+        function showConsensusFeedback() {
+            // Show +1 popup animation
+            const plusOne = document.getElementById('progress-plus-one');
+            plusOne.classList.remove('show');
+            void plusOne.offsetWidth; // Force reflow to restart animation
+            plusOne.classList.add('show');
+
+            // Pop the progress text
+            const progressText = document.getElementById('progress-text');
+            progressText.classList.add('progress-text-pop');
+            setTimeout(() => progressText.classList.remove('progress-text-pop'), 400);
+
+            // Pulse the progress bar green
+            const progressFill = document.getElementById('progress-fill');
+            progressFill.classList.add('consensus-pulse');
+            setTimeout(() => progressFill.classList.remove('consensus-pulse'), 800);
+        }
+
+        async function showSuccessState() {
+            const btn = document.getElementById('submit-btn');
+            const originalContent = btn.innerHTML;
+
+            const emojis = ['👏', '🎉', '🔥', '✨', '⚡', '🚀', '✅', '🥳', '🙌', '🌟'];
+            const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+
+            btn.classList.add('success');
+            btn.innerHTML = `<span>SAVED! ${randomEmoji}</span>`;
+
+            await new Promise(r => setTimeout(r, 800));
+
+            btn.classList.remove('success');
+            btn.innerHTML = originalContent;
+        }
+
+        function validateInput() {
+            const label = document.getElementById('label-input').value.trim();
+            const btn = document.getElementById('submit-btn');
+            btn.disabled = (label.length !== 6);
+        }
+
+        async function submit() {
+            const label = document.getElementById('label-input').value.trim();
+            if (label.length !== 6 || !currentImageId) return;
+
+            const btn = document.getElementById('submit-btn');
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/api/submit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        image_id: currentImageId,
+                        label: label
+                    })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+
+                    // Update local contribution count from server
+                    localContribCount = result.user_contributions;
+                    localStorage.setItem('contribCount', localContribCount);
+                    document.getElementById('user-contrib-count').textContent = localContribCount;
+
+                    // Show green +1 popup for contribution increase
+                    showContribPlusOne();
+
+                    // Show completion celebration if this vote completed an image
+                    if (result.just_completed) {
+                        showCompletionToast();
+                        showConsensusFeedback();
+                    }
+
+                    // Check for milestone (only show once)
+                    if (localContribCount >= 10) {
+                        // Hide banners immediately
+                        document.getElementById('contrib-banner').style.display = 'none';
+                        document.getElementById('milestone-badge').classList.remove('show');
+
+                        if (!hasReachedMilestone) {
+                            showAchievement();
+                        }
+                    } else if (localContribCount >= 8 && localContribCount < 10 && !hasReachedMilestone) {
+                        // Show subtle badge hint when approaching milestone
+                        document.getElementById('milestone-badge').classList.add('show');
+                        document.getElementById('milestone-badge').textContent = `${10 - localContribCount} to go!`;
+                    }
+
+                    await showSuccessState();
+                }
+
+                await loadNext();
+            } catch (err) {
+                console.error('Failed to submit:', err);
+                btn.disabled = false;
+            }
+        }
+
+        function showAchievement() {
+            document.getElementById('achievement-modal').style.display = 'flex';
+        }
+
+        function closeAchievement() {
+            document.getElementById('achievement-modal').style.display = 'none';
+            // Mark milestone as reached so popup doesn't reappear
+            localStorage.setItem('reachedMilestone', 'true');
+            hasReachedMilestone = true;
+            // Hide the milestone badge
+            document.getElementById('milestone-badge').classList.remove('show');
+        }
+
+        async function submitContributor() {
+            const name = document.getElementById('contributor-name').value.trim();
+            const url = document.getElementById('contributor-url').value.trim();
+
+            if (!name) return alert('Name is required');
+
+            try {
+                await fetch('/api/add_contributor', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, url })
+                });
+
+                document.getElementById('achievement-modal').style.display = 'none';
+                localStorage.setItem('reachedMilestone', 'true');
+                hasReachedMilestone = true;
+                closeBanner();
+                loadLeaderboard(); // Refresh leaderboard with new contributor
+            } catch (err) {
+                console.error('Failed to save contributor:', err);
+            }
+        }
+
+        document.getElementById('submit-btn').addEventListener('click', submit);
+        document.getElementById('label-input').addEventListener('input', validateInput);
+        document.getElementById('label-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') submit();
+        });
+
+        async function updateHeartbeat() {
+            try {
+                const response = await fetch('/api/heartbeat', { method: 'POST' });
+                const data = await response.json();
+                const countText = data.online_count === 1 ? '1 person' : `${data.online_count} people`;
+                document.getElementById('online-count-text').textContent = `online - ${countText}`;
+            } catch (err) {
+                console.error('Heartbeat failed:', err);
+            }
+        }
+
+        function showContribPlusOne() {
+            const plusOne = document.getElementById('contrib-plus-one');
+            plusOne.classList.remove('show');
+            void plusOne.offsetWidth; // Force reflow
+            plusOne.classList.add('show');
+        }
+
+        let leaderboardTimerInterval = null;
+        let secondsUntilUpdate = 0;
+
+        async function loadLeaderboard() {
+            try {
+                const response = await fetch('/api/leaderboard');
+                const data = await response.json();
+                const list = document.getElementById('leaderboard-list');
+
+                if (data.leaderboard.length === 0) {
+                    list.innerHTML = '<li class="leaderboard-item" style="justify-content: center; color: var(--muted);">No contributors yet</li>';
+                } else {
+                    list.innerHTML = data.leaderboard.map((entry, i) => {
+                        const nameHtml = entry.url
+                            ? `<a href="${entry.url}" target="_blank" rel="noopener">${entry.name}</a>`
+                            : entry.name;
+
+                        // Medal class for top 3
+                        let medalClass = '';
+                        if (i === 0) medalClass = 'gold';
+                        else if (i === 1) medalClass = 'silver';
+                        else if (i === 2) medalClass = 'bronze';
+
+                        // User highlight class
+                        const userClass = entry.is_user ? 'is-user' : '';
+
+                        // Rank class for gradient colors
+                        const rankClass = `rank-${i + 1}`;
+
+                        return `
+                            <li class="leaderboard-item ${medalClass} ${userClass} ${rankClass}">
+                                <span class="leaderboard-rank">#${i + 1}</span>
+                                <span class="leaderboard-name">${nameHtml}</span>
+                                <span class="leaderboard-count">${entry.contributions}</span>
+                            </li>
+                        `;
+                    }).join('');
+                }
+
+                // Show user rank at bottom
+                const userRankEl = document.getElementById('leaderboard-user-rank');
+                if (data.user_rank !== null && data.user_contributions > 0) {
+                    document.getElementById('user-rank-number').textContent = data.user_rank;
+                    document.getElementById('user-rank-contribs').textContent = data.user_contributions;
+                    userRankEl.style.display = 'flex';
+
+                    // Sync local count and hide banners if reached milestone
+                    localContribCount = data.user_contributions;
+                    localStorage.setItem('contribCount', localContribCount);
+                    if (localContribCount >= 10 || hasReachedMilestone) {
+                        document.getElementById('contrib-banner').style.display = 'none';
+                        document.getElementById('milestone-badge').classList.remove('show');
+                    }
+                } else {
+                    userRankEl.style.display = 'none';
+                }
+
+                // Start countdown timer
+                secondsUntilUpdate = data.next_update_seconds || 3600;
+                startLeaderboardTimer();
+
+            } catch (err) {
+                console.error('Failed to load leaderboard:', err);
+            }
+        }
+
+        function startLeaderboardTimer() {
+            if (leaderboardTimerInterval) clearInterval(leaderboardTimerInterval);
+
+            updateTimerDisplay();
+            leaderboardTimerInterval = setInterval(() => {
+                secondsUntilUpdate--;
+                if (secondsUntilUpdate <= 0) {
+                    loadLeaderboard(); // Refresh when timer hits 0
+                } else {
+                    updateTimerDisplay();
+                }
+            }, 1000);
+        }
+
+        function updateTimerDisplay() {
+            const mins = Math.floor(secondsUntilUpdate / 60);
+            const secs = secondsUntilUpdate % 60;
+            document.getElementById('timer-countdown').textContent =
+                `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        // Initial load
+        checkBanner();
+        loadNext();
+        loadLeaderboard();
+
+        // Start heartbeat sequence
+        updateHeartbeat();
+        setInterval(updateHeartbeat, 30000);
+    </script>
+</body>
+
+</html>
