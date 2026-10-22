@@ -7,7 +7,6 @@ Usage: python scripts/verify_labels.py [--port 5050]
 import os
 import sys
 import glob
-import json
 from flask import Flask, send_file, jsonify, request
 
 app = Flask(__name__)

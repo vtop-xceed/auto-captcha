@@ -2,7 +2,6 @@
 import os
 import random
 import zipfile
-import shutil
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'captchas')
 ZIP_200 = os.path.join(DATA_DIR, 'dataset_200.zip')

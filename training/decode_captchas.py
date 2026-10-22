@@ -6,7 +6,7 @@ import numpy as np
 import torch
 
 from model import (
-    IMG_WIDTH, IMG_HEIGHT, CaptchaModel, VOCAB_SIZE, decode_greedy,
+    CaptchaModel, VOCAB_SIZE, decode_greedy,
 )
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

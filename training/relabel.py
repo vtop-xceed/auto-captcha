@@ -2,7 +2,7 @@
 import os
 import cv2
 import shutil
-from ollama import generate, Client
+from ollama import Client
 
 # Constants
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data", "captchas"))

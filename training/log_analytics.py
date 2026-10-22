@@ -150,15 +150,12 @@ def generate_html(data):
     # Concurrency stats
     concurrent_values = list(data['concurrent'].values())
     max_concurrent = max(concurrent_values) if concurrent_values else 0
-    avg_concurrent = sum(concurrent_values) / len(concurrent_values) if concurrent_values else 0
-    
+
     # Response time stats
     if data['response_times']:
         avg_response = sum(data['response_times']) / len(data['response_times'])
-        max_response = max(data['response_times'])
     else:
         avg_response = 0
-        max_response = 0
     
     html = f'''<!DOCTYPE html>
 <html lang="en">

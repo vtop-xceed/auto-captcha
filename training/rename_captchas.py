@@ -1,6 +1,5 @@
 import sqlite3
 import os
-import shutil
 from collections import Counter
 
 # Configuration
