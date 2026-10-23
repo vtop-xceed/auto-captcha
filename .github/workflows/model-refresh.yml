@@ -25,7 +25,7 @@ jobs:
         run: pip install -r training/requirements.txt
 
       - name: Train + export ONNX
-        run: python training/onnx.py
+        run: python training/train.py
 
       - name: Verify accuracy (optional gate)
         if: inputs.min_accuracy != '0'

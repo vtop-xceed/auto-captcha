@@ -48,7 +48,7 @@ docker compose -f deploy/docker-compose.yml up -d --build
   every saved image and then deletes them from the server, so each
   malformed batch is fetched exactly once. Monthly pipeline hook:
   `curl -u admin:$PASSWORD -o malformed-$(date +%F).zip https://host/malformed`
-  -> relabel -> `training/onnx.py` -> rebuild image.
+  -> relabel -> `training/train.py` -> rebuild image.
 
 `AUTH_PASSWORD` is baked into the Docker image via a GitHub Actions
 secret (`build-args` in release.yml). Anyone who can pull the image can
@@ -58,7 +58,7 @@ Train a model (the export lands in `deploy/` so the image build picks it up):
 
 ```sh
 pip install -r training/requirements.txt
-python training/onnx.py           # trains + exports deploy/captcha_model.onnx(+.data)
+python training/train.py           # trains + exports deploy/captcha_model.onnx(+.data)
 python training/decode_captchas.py
 ```
 

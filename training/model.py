@@ -1,6 +1,6 @@
 """Single source of truth for the captcha model architecture and vocab.
 
-Imported by onnx.py and decode_captchas.py. Do not copy this class
+Imported by train.py and decode_captchas.py. Do not copy this class
 anywhere else; the Rust solver (deploy/api/src/solver.rs) mirrors it.
 """
 
