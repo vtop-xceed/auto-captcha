@@ -22,7 +22,7 @@ jobs:
           unzip -o -j -d /tmp/batch /tmp/malformed.zip || true # empty month passes through
           find /tmp/batch -type f ! -name '*.png' -delete
           echo "count=$(find /tmp/batch -name '*.png' | wc -l)" >> "$GITHUB_OUTPUT"
-          cp /tmp/batch/*.png training/data/captchas/ 2>/dev/null || true
+          cp /tmp/batch/*.png training/data/malformed/ 2>/dev/null || true
         env:
           HOST_URL: ${{ secrets.HOST_URL }}
           AUTH_PASSWORD: ${{ secrets.AUTH_PASSWORD }}
@@ -35,15 +35,17 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
-          git add training/data/captchas
-          git commit -m "captchas: ${DATE} batch (${COUNT} images)"
+          git add training/data/malformed
+          git commit -m "malformed: ${DATE} batch (${COUNT} images)"
           git push origin "$BRANCH"
           gh pr create \
-            --title "captchas: ${DATE} batch (${COUNT} images)" \
-            --body "Unlabeled captchas fetched from the live API.
+            --title "malformed: ${DATE} batch (${COUNT} images)" \
+            --body "Unlabeled malformed captchas fetched from the live API.
 
-          Merge after labeling: rename files to their label (6-char [0-9a-z]),
-          then run the \`model-refresh\` workflow."
+          Merge, then label locally: \`python training/labeler/local.py\`
+          (each corrected captcha moves \`training/data/malformed\` \u2192 \`training/data/captchas\`).
+          When \`malformed\` is empty: \`git add -A training/data && git commit && git push\`
+          and run the \`model-refresh\` workflow."
           echo "PR URL: see actions output above"
         env:
           GH_TOKEN: ${{ github.token }}

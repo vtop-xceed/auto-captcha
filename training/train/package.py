@@ -2,8 +2,8 @@ import zipfile
 import os
 
 def package_project():
-    TRAIN = os.path.dirname(os.path.abspath(__file__))
-    zip_filename = os.path.join(os.path.dirname(TRAIN), "captop_deploy.zip")
+    TRAIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    zip_filename = os.path.join(TRAIN, "captop_deploy.zip")
     include_files = [os.path.join(TRAIN, item) for item in [
         "labeler/app.py",
         "labeler/static",

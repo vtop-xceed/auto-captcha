@@ -20,14 +20,14 @@ from model import (
     CaptchaModel, VOCAB_SIZE, encode_label, decode_greedy, num_to_char,
 )
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # --- Configuration ---
 DATA_DIR = os.environ.get(
     "CAPTCHA_DATA_DIR", os.path.join(ROOT, "training", "data", "captchas")
 )
-MODEL_OUT = os.path.join(ROOT, "training", "model", "captcha_model.pth")
-METRICS_OUT = os.path.join(ROOT, "training", "model", "metrics.json")
+MODEL_OUT = os.path.join(ROOT, "training", "train", "model", "captcha_model.pth")
+METRICS_OUT = os.path.join(ROOT, "training", "train", "model", "metrics.json")
 ONNX_PATH = os.path.join(ROOT, "deploy", "captcha_model.onnx")
 BATCH_SIZE = 16
 IMG_WIDTH = 200
@@ -120,7 +120,7 @@ def train():
     criterion = nn.CTCLoss(blank=0, zero_infinity=True)
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=4)
-    writer = SummaryWriter(os.path.join(ROOT, "training", "model", "runs"))
+    writer = SummaryWriter(os.path.join(ROOT, "training", "train", "model", "runs"))
 
     best_val_loss = float('inf')
     metrics = {"model": "crnn-bgru-ctc", "per_epoch": []}

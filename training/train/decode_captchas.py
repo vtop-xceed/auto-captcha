@@ -9,8 +9,8 @@ from model import (
     CaptchaModel, VOCAB_SIZE, decode_greedy,
 )
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL_PATH = os.path.join(ROOT, "training", "model", "captcha_model.pth")
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+MODEL_PATH = os.path.join(ROOT, "training", "train", "model", "captcha_model.pth")
 TEST_DIR = os.path.join(ROOT, "training", "data", "test")
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

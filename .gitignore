@@ -3,11 +3,12 @@ deploy/api/target/
 *.so
 
 # model binaries (shipped via GitHub releases); capture images are tracked
-training/model/*
-!training/model/README.md
+training/train/model/*
+!training/train/model/README.md
 training/data/*
 !training/data/README.md
 !training/data/captchas
+!training/data/malformed
 
 # deploy-time model binaries (output of training/onnx.py)
 deploy/captcha_model.onnx

@@ -25,4 +25,4 @@ jobs:
       - name: ruff (syntax + obvious lint)
         run: pipx run ruff check training --select F,E9
       - name: compile check
-        run: python -m py_compile training/*.py
+        run: python -m py_compile training/train/*.py
