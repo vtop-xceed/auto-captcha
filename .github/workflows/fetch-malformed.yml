@@ -19,7 +19,7 @@ jobs:
         run: |
           mkdir -p /tmp/batch
           curl -sSf --user "admin:${AUTH_PASSWORD}" "${HOST_URL%/}/malformed" -o /tmp/malformed.zip
-          unzip -o -j -d /tmp/batch /tmp/malformed.zip
+          unzip -o -j -d /tmp/batch /tmp/malformed.zip || true # empty month passes through
           find /tmp/batch -type f ! -name '*.png' -delete
           echo "count=$(find /tmp/batch -name '*.png' | wc -l)" >> "$GITHUB_OUTPUT"
           cp /tmp/batch/*.png training/data/captchas/ 2>/dev/null || true
