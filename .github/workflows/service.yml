@@ -3,9 +3,9 @@ name: service
 on:
   push:
     branches: [main]
-    paths: ["service/**", ".github/workflows/service.yml"]
+    paths: ["deploy/**", ".github/workflows/service.yml"]
   pull_request:
-    paths: ["service/**", ".github/workflows/service.yml"]
+    paths: ["deploy/**", ".github/workflows/service.yml"]
 
 permissions:
   contents: read
@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: service
+        working-directory: deploy/api
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Stub model files (build check only)
         run: |
-          mkdir -p model
-          touch model/captcha_model.onnx model/captcha_model.onnx.data
+          mkdir -p deploy
+          touch deploy/captcha_model.onnx deploy/captcha_model.onnx.data
       - name: Build image
-        run: docker build -f service/Dockerfile .
+        run: docker build -f deploy/Dockerfile .

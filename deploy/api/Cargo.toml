@@ -1,0 +1,28 @@
+[package]
+name = "captcha-api"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "api"
+path = "src/main.rs"
+
+[[bin]]
+name = "solver"
+path = "src/solver.rs"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "fs"] }
+tower-http = { version = "0.7", features = ["cors"] }
+ort = { version = "=2.0.0-rc.15", features = ["download-binaries"] }
+base64 = "0.23"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+serde = { version = "1", features = ["derive"] }
+ndarray = "0.17"
+zip = { version = "9", default-features = false, features = ["bzip2"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

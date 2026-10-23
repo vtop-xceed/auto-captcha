@@ -1,0 +1,67 @@
+name: model-refresh
+on:
+  workflow_dispatch:
+    inputs:
+      min_accuracy:
+        description: "Min decode accuracy % on training/data/test (0 = skip gate; test dir must be pushed for the gate)"
+        default: "0"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install deps
+        run: pip install -r training/requirements.txt
+
+      - name: Train + export ONNX
+        run: python training/onnx.py
+
+      - name: Verify accuracy (optional gate)
+        if: inputs.min_accuracy != '0'
+        run: |
+          TEST_DIR="training/data/test"
+          COUNT=$(find "$TEST_DIR" -maxdepth 1 -name '*.jpg' 2>/dev/null | wc -l)
+          if [ "$COUNT" -eq 0 ]; then
+            echo "no test set in repo, skipping accuracy gate"
+            exit 0
+          fi
+          python training/decode_captchas.py
+          LINE=$(python training/decode_captchas.py 2>/dev/null | grep '^Exact match:')
+          CORRECT=$(echo "$LINE" | cut -d' ' -f3 | cut -d/ -f1)
+          TOTAL=$(echo "$LINE" | cut -d' ' -f3 | cut -d/ -f2)
+          ACC=$(( CORRECT * 100 / TOTAL ))
+          echo "accuracy: ${ACC}% (min required: ${{ inputs.min_accuracy }}%)"
+          if [ "$ACC" -lt "${{ inputs.min_accuracy }}" ]; then
+            echo "::error::accuracy ${ACC}% below minimum ${{ inputs.min_accuracy }}%"
+            exit 1
+          fi
+
+      - name: Push image to GHCR
+        run: |
+          echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          TAG=$(date +%Y.%m)
+          docker build -f deploy/Dockerfile . \
+            --build-arg AUTH_PASSWORD="${{ secrets.AUTH_PASSWORD }}" \
+            -t "ghcr.io/${{ github.repository }}:${TAG}" \
+            -t "ghcr.io/${{ github.repository }}:latest"
+          docker push "ghcr.io/${{ github.repository }}:${TAG}"
+          docker push "ghcr.io/${{ github.repository }}:latest"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: model-${{ github.run_id }}
+          path: |
+            deploy/captcha_model.onnx
+            deploy/captcha_model.onnx.data
+            training/model/captcha_model.pth

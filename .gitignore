@@ -1,13 +1,17 @@
 # build artifacts
-service/target/
+deploy/api/target/
 *.so
 
-# model + dataset binaries (shipped via GitHub releases)
-model/*
-!model/README.md
-data/*
-!data/README.md
-!data/.gitkeep
+# model binaries (shipped via GitHub releases); capture images are tracked
+training/model/*
+!training/model/README.md
+training/data/*
+!training/data/README.md
+!training/data/captchas
+
+# deploy-time model binaries (output of training/onnx.py)
+deploy/captcha_model.onnx
+deploy/captcha_model.onnx.data
 
 # runtime feedback
 reports/

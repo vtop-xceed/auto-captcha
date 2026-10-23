@@ -1,8 +1,13 @@
 # Scripts
 
-Utility scripts for various project tasks.
+- **model.py**: CaptchaModel (CNN + BiGRU + CTC), vocab and encode/decode. Single source of truth; the Rust solver mirrors it.
+- **onnx.py**: Trains the model and exports `deploy/captcha_model.onnx` (+ external `.data`) in one run.
+- **decode_captchas.py**: Exact-match eval of a trained model over `data/test`, writes `data/test_results.txt`.
+- **package.py**: Zips the labeler + data for PythonAnywhere upload.
+- **requirements.txt**: Python deps for all of the above.
 
-- **init_db.py**: Initializes the SQLite database and populates images.
-- **relabel.py**: Uses AI models (Ollama) to perform automated relabeling. (This was too slow so I crowdsourced it; find the implementation in the **server** directory or visit https://sykik.pythonanywhere.com or https://captop.sykik.workers.dev.)
-- **deeplearn.py**: PyTorch script for training the captcha recognition model.
-- **package.py**: Packages the project into a zip file for deployment.
+Subdirectories:
+
+- **labeler/**: Flask crowd-labeling site (deployed on PythonAnywhere).
+- **data/**: dataset (captchas + labels.db + test), gitignored.
+- **model/**: training checkpoint (.pth) + tensorboard runs, gitignored.

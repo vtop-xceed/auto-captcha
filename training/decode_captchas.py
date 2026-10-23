@@ -10,8 +10,8 @@ from model import (
 )
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL_PATH = os.path.join(ROOT, "model", "captcha_model.pth")
-TEST_DIR = os.path.join(ROOT, "data", "test")
+MODEL_PATH = os.path.join(ROOT, "training", "model", "captcha_model.pth")
+TEST_DIR = os.path.join(ROOT, "training", "data", "test")
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -44,7 +44,7 @@ def predict():
             results.append(f"{truth}: {pred}")
 
     print(f"Exact match: {correct}/{len(test_images)}")
-    out = os.path.join(ROOT, "data", "test_results.txt")
+    out = os.path.join(ROOT, "training", "data", "test_results.txt")
     with open(out, "w") as f:
         f.write("\n".join(results))
     print(f"Results saved to {out}")

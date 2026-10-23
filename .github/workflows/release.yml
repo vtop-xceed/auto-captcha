@@ -13,10 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Stub model files (image must build; model is fetched separately)
+      - name: Stub model files (image must build; model comes from deploy/ on local builds)
         run: |
-          mkdir -p model
-          touch model/captcha_model.onnx model/captcha_model.onnx.data
+          mkdir -p deploy
+          touch deploy/captcha_model.onnx deploy/captcha_model.onnx.data
       - name: Log into GHCR
         uses: docker/login-action@v3
         with:
@@ -27,8 +27,10 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: service/Dockerfile
+          file: deploy/Dockerfile
           push: true
+          build-args: |
+            AUTH_PASSWORD=${{ secrets.AUTH_PASSWORD }}
           tags: |
             ghcr.io/${{ github.repository_owner }}/auto-captcha-api:${{ github.ref_name }}
             ghcr.io/${{ github.repository_owner }}/auto-captcha-api:latest

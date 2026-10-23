@@ -1,0 +1,50 @@
+name: fetch-malformed
+on:
+  schedule:
+    - cron: "0 4 2 * *" # 2nd of the month, 04:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download malformed zip from live API
+        id: fetch
+        run: |
+          mkdir -p /tmp/batch
+          curl -sSf --user "admin:${AUTH_PASSWORD}" "${HOST_URL%/}/malformed" -o /tmp/malformed.zip
+          unzip -o -j -d /tmp/batch /tmp/malformed.zip
+          find /tmp/batch -type f ! -name '*.png' -delete
+          echo "count=$(find /tmp/batch -name '*.png' | wc -l)" >> "$GITHUB_OUTPUT"
+          cp /tmp/batch/*.png training/data/captchas/ 2>/dev/null || true
+        env:
+          HOST_URL: ${{ secrets.HOST_URL }}
+          AUTH_PASSWORD: ${{ secrets.AUTH_PASSWORD }}
+
+      - name: Open PR with new captchas
+        if: steps.fetch.outputs.count != '0'
+        run: |
+          DATE=$(date +%F)
+          BRANCH="data/captchas-${DATE}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add training/data/captchas
+          git commit -m "captchas: ${DATE} batch (${COUNT} images)"
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "captchas: ${DATE} batch (${COUNT} images)" \
+            --body "Unlabeled captchas fetched from the live API.
+
+          Merge after labeling: rename files to their label (6-char [0-9a-z]),
+          then run the \`model-refresh\` workflow."
+          echo "PR URL: see actions output above"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COUNT: ${{ steps.fetch.outputs.count }}
