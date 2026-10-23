@@ -5,6 +5,7 @@ opencv-python-headless
 pillow
 scikit-learn
 tensorboard
-onnx
+onnxscript
+onnx==1.22.0
 onnxruntime
 requests
