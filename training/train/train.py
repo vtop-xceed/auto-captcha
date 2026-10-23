@@ -6,6 +6,7 @@ import re
 import json
 import os
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -21,6 +22,42 @@ from model import (
 )
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# --- Color augment: randomized recolor before fixed BT.601 luma (solver.rs) ---
+# Model only ever sees luminance, so we sample channel weights on the color
+# simplex: any glyph/noise re-tinting the site later ships maps to a luminance
+# pattern the model already saw. Weights sum to 1 so neutral bgs stay neutral.
+_BASE_W = np.array([0.114, 0.587, 0.299], dtype=np.float32)  # BT.601, BGR order
+
+
+def _recolor_weights(rng: np.random.Generator) -> np.ndarray:
+    if rng.random() < 0.5:
+        return rng.dirichlet(_BASE_W * 24 + 1).astype(np.float32)
+    return rng.dirichlet(np.ones(3)).astype(np.float32)
+
+
+def _randomized_luma(bgr: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    gray = bgr.astype(np.float32) @ _recolor_weights(rng)
+    return np.clip(gray + 0.5, 0, 255).astype(np.uint8)
+
+
+def _augment_color(bgr: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Simulated site restyling: re-tint, polarity flip, gamma, blur, noise."""
+    gray = _randomized_luma(bgr, rng)
+    if rng.random() < 0.05:  # ponytail: polarity guard, raise p if site ever dark bg
+        gray = 255 - gray
+    lut = (np.arange(256) / 255.0) ** rng.uniform(0.6, 1.6) * 255.0 + 0.5
+    gray = lut.astype(np.uint8)[gray]
+    if rng.random() < 0.2:
+        gray = cv2.GaussianBlur(gray, (3, 3), 0)
+    sigma = rng.uniform(0.0, 4.0)
+    gray = np.clip(gray + rng.normal(0.0, sigma, gray.shape) + 0.5, 0, 255)
+    return gray.astype(np.uint8)
+
+
+def _fixed_luma(bgr: np.ndarray) -> np.ndarray:
+    """Validation path: must match runtime conversion exactly (solver.rs)."""
+    return cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
 
 # --- Configuration ---
 DATA_DIR = os.environ.get(
@@ -39,16 +76,23 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # --- Dataset ---
 class CaptchaDataset(Dataset):
-    def __init__(self, image_paths, transform=None):
+    def __init__(self, image_paths, transform=None, color_augment=False):
         self.image_paths = image_paths
         self.transform = transform
+        self.color_augment = color_augment
+        self.rng = np.random.default_rng()
 
     def __len__(self):
         return len(self.image_paths)
 
     def __getitem__(self, idx):
         img_path = self.image_paths[idx]
-        image = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+        image = cv2.imread(img_path, cv2.IMREAD_COLOR)
+
+        if self.color_augment:
+            image = _augment_color(image, self.rng)
+        else:
+            image = _fixed_luma(image)
 
         image = Image.fromarray(image)
         if self.transform:
@@ -101,7 +145,10 @@ def train():
     train_paths, val_paths = train_test_split(image_paths, test_size=0.2, random_state=42)
 
     train_transform = transforms.Compose([
-        transforms.RandomAffine(degrees=3, translate=(0.02, 0.05), scale=(0.95, 1.05), fill=255),
+        transforms.RandomAffine(
+            degrees=3, translate=(0.04, 0.08), scale=(0.9, 1.1), shear=2,
+            fill=255,
+        ),
         transforms.ToTensor(),
         transforms.Normalize((0.5,), (0.5,)),
     ])
@@ -110,7 +157,7 @@ def train():
         transforms.Normalize((0.5,), (0.5,)),
     ])
 
-    train_ds = CaptchaDataset(train_paths, transform=train_transform)
+    train_ds = CaptchaDataset(train_paths, transform=train_transform, color_augment=True)
     val_ds = CaptchaDataset(val_paths, transform=val_transform)
 
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn)
