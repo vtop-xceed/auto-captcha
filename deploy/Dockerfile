@@ -1,23 +1,21 @@
-# Build stage
-FROM alpine:latest AS builder
+# Build stage (glibc: ort's download-binaries feature links the prebuilt runtime
+# statically, so the runtime stage only needs libstdc++)
+FROM rust:slim AS builder
 
-# Install build dependencies, rust, cargo, and onnxruntime development headers
-RUN apk add --no-cache musl-dev gcc pkgconfig onnxruntime-dev g++ make rust cargo
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev build-essential && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 # Build context is the repo root, not deploy/
 COPY deploy/api/Cargo.toml deploy/api/Cargo.lock ./
 COPY deploy/api/src ./src
 
-# Use system onnxruntime to avoid downloading incompatible glibc binaries
-ENV ORT_STRATEGY=system
 RUN cargo build --release
 
 # Runtime stage
-FROM alpine:latest
+FROM debian:trixie-slim
 
-# Install onnxruntime and other runtime dependencies
-RUN apk add --no-cache libgcc libstdc++ onnxruntime
+RUN apt-get update && apt-get install -y --no-install-recommends libgcc1 libstdc++6 && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -25,7 +23,7 @@ WORKDIR /app
 COPY --from=builder /app/target/release/api /app/api
 COPY --from=builder /app/target/release/solver /app/solver
 
-# Copy model assets (output of training/onnx.py, or a GitHub release)
+# Copy model assets (output of training/train.py, or a GitHub release)
 COPY deploy/captcha_model.onnx /app/model/captcha_model.onnx
 COPY deploy/captcha_model.onnx.data /app/model/captcha_model.onnx.data
 

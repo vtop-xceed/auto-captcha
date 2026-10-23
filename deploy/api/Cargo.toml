@@ -15,12 +15,14 @@ path = "src/solver.rs"
 axum = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "fs"] }
 tower-http = { version = "0.7", features = ["cors"] }
-ort = { version = "=2.0.0-rc.15", features = ["download-binaries"] }
 base64 = "0.23"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 serde = { version = "1", features = ["derive"] }
 ndarray = "0.17"
 zip = { version = "9", default-features = false, features = ["bzip2"] }
+
+# prebuilt ONNX Runtime binaries are linked statically (see deploy/Dockerfile)
+ort = { version = "=2.0.0-rc.15", features = ["download-binaries"] }
 
 [profile.release]
 opt-level = 3
