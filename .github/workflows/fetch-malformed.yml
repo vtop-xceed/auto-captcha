@@ -3,6 +3,7 @@ on:
   schedule:
     - cron: "0 4 2 * *" # 2nd of the month, 04:00 UTC
   workflow_dispatch:
+  workflow_call: # chained before every model-refresh train (fetch first)
 
 permissions:
   contents: write
@@ -11,6 +12,8 @@ permissions:
 jobs:
   fetch:
     runs-on: ubuntu-latest
+    env:
+      RUN_ID: ${{ github.run_id }}
     steps:
       - uses: actions/checkout@v7
 
@@ -31,7 +34,7 @@ jobs:
         if: steps.fetch.outputs.count != '0'
         run: |
           DATE=$(date +%F)
-          BRANCH="data/captchas-${DATE}"
+          BRANCH="data/captchas-${DATE}-${RUN_ID}" # unique per run: cron + chained calls may share a day
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"

@@ -9,9 +9,17 @@ on:
 permissions:
   contents: write
   packages: write
+  pull-requests: write # for the chained fetch-malformed PR
 
 jobs:
+  # Preserve live captured data before anything else: fetch the malformed zip
+  # and archive it via PR, then train on the already-merged labeled dataset.
+  fetch-malformed:
+    uses: ./.github/workflows/fetch-malformed.yml
+    secrets: inherit
+
   train:
+    needs: [fetch-malformed]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

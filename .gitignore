@@ -14,10 +14,11 @@ training/data/*
 deploy/captcha_model.onnx
 deploy/captcha_model.onnx.data
 
-# runtime feedback
+# runtime feedback (malformed/ at repo root; keep training/data/malformed tracked)
 reports/
 failed/
-malformed/
+/malformed/
+training/data/malformed/*.log
 *.db
 
 # python
