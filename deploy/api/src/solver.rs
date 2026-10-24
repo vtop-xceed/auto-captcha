@@ -24,11 +24,13 @@ async fn main() {
 
     let env = ort::init().build().unwrap();
     // ponytail: round-robin pool, no backpressure; SOLVER_SESSIONS if contention
-    // ever shows up in the metrics
+    // ever shows up in the metrics. .max(1): SOLVER_SESSIONS=0 would modulo-panic
+    // on the first request
     let pool_size = std::env::var("SOLVER_SESSIONS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(4);
+        .unwrap_or(4)
+        .max(1);
     let sessions: Vec<_> = (0..pool_size)
         .map(|_| {
             let session = Session::builder(&env)
@@ -110,7 +112,11 @@ fn run_inference(
     session: Arc<Mutex<Session>>,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let input = Tensor::from_array(tensor)?;
-    let mut session = session.lock().unwrap();
+    // poison-steal: a panicking run must not brick this slot forever
+    let mut session = match session.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
     let outputs = session.run(ort::inputs!["image" => input])?;
     let (_, raw) = outputs["output"].try_extract_tensor::<f32>()?;
     Ok(ctc_decode(raw))
