@@ -129,8 +129,19 @@ fn authorized(password: &str, headers: &HeaderMap) -> bool {
     };
     creds
         .split_once(':')
-        .map(|(_, pass)| pass == password)
+        .map(|(_, pass)| ct_eq(pass, password))
         .unwrap_or(false)
+}
+
+// same 64 iterations always, so response timing can't leak password bytes;
+// ponytail: compares only the first 64 bytes — passwords that long truncate-match
+fn ct_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    let mut d = 0u8;
+    for i in 0..64 {
+        d |= a.get(i).copied().unwrap_or(0) ^ b.get(i).copied().unwrap_or(0);
+    }
+    d | ((a.len() ^ b.len()) as u8) == 0
 }
 
 fn valid_report_name(name: &str) -> bool {
@@ -501,6 +512,15 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(header::AUTHORIZATION, basic_header("u", "pw"));
         assert!(!authorized("", &headers));
+    }
+
+    #[test]
+    fn ct_eq_true_only_for_equal() {
+        assert!(ct_eq("pw", "pw"));
+        assert!(!ct_eq("pw", "pW"));
+        assert!(!ct_eq("pw", "pw1"));
+        assert!(!ct_eq("pw", "p"));
+        assert!(!ct_eq("p", "pw"));
     }
 
     #[test]
