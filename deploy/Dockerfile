@@ -34,9 +34,8 @@ RUN chmod +x /app/entrypoint.sh
 # Default ports and paths
 ENV PORT=3000
 ENV MODEL_PATH=/app/model/captcha_model.onnx
-# Baked at build time via --build-arg (GitHub secret). Anyone with the
-# image can read it (docker inspect); it only guards /report.
-ARG AUTH_PASSWORD=""
-ENV AUTH_PASSWORD=${AUTH_PASSWORD}
+# AUTH_PASSWORD must come from the runtime environment (Render dashboard /
+# compose `environment:`), NOT the build: anyone with the image could read a
+# build-arg back out. It guards only /malformed; unset = route 404s (fail-closed).
 
 ENTRYPOINT ["/app/entrypoint.sh"]
