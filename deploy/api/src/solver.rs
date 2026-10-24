@@ -75,13 +75,18 @@ async fn handle_connection(
     let mut image_data = vec![0u8; len as usize];
     stream.read_exact(&mut image_data).await?;
 
-    let text = {
-        let mut session = session.lock().unwrap();
-        let tensor = preprocess(&image_data)?;
-        let input = Tensor::from_array(tensor)?;
-        let outputs = session.run(ort::inputs!["image" => input])?;
-        let (_, raw) = outputs["output"].try_extract_tensor::<f32>()?;
-        ctc_decode(raw)
+    let text = match preprocess(&image_data) {
+        Ok(tensor) => {
+            let input = Tensor::from_array(tensor)?;
+            let mut session = session.lock().unwrap();
+            let outputs = session.run(ort::inputs!["image" => input])?;
+            let (_, raw) = outputs["output"].try_extract_tensor::<f32>()?;
+            ctc_decode(raw)
+        }
+        // api can't tell EOF-errors from a legit empty CTC decode, so decode
+        // failures get a marker character instead of silence ("?" is outside
+        // the [0-9A-Z] output alphabet)
+        Err(_) => String::from("?"),
     };
 
     // Write result back

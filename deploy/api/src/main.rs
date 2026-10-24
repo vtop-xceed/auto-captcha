@@ -8,7 +8,6 @@ use axum::{
     routing::{get, post},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-use image::ImageReader;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::io::{Cursor, Write};
@@ -164,20 +163,6 @@ async fn solve(
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
 
-    let decode_ok = ImageReader::new(Cursor::new(&image_data))
-        .with_guessed_format()
-        .map(|r| r.decode().is_ok())
-        .unwrap_or(false);
-    if !decode_ok {
-        state.logs.served_failure();
-        let line = match save_malformed_image(&state.report_dir, &image_data).await {
-            Some(n) => format!("solve 400 malformed; saved {n}"),
-            None => "solve 400 malformed; report dir full".into(),
-        };
-        state.logs.log(line);
-        return Err(StatusCode::BAD_REQUEST);
-    }
-
     // a hung solver used to wedge the task forever; the whole exchange is bounded
     let io = async {
         let mut stream = UnixStream::connect(&state.solver_socket).await.map_err(|_| {
@@ -219,6 +204,17 @@ async fn solve(
             return Err(StatusCode::SERVICE_UNAVAILABLE);
         }
     };
+
+    // solver marks undecodable input with "?" (outside its output alphabet)
+    if text == "?" {
+        state.logs.served_failure();
+        let line = match save_malformed_image(&state.report_dir, &image_data).await {
+            Some(n) => format!("solve 400 malformed; saved {n}"),
+            None => "solve 400 malformed; report dir full".into(),
+        };
+        state.logs.log(line);
+        return Err(StatusCode::BAD_REQUEST);
+    }
 
     state.logs.served.fetch_add(1, Ordering::Relaxed);
     state.logs.log(format!("solve 200 ({} chars)", text.len()));
