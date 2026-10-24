@@ -1,6 +1,6 @@
 use axum::{
     Json, Router,
-    extract::{Request, State},
+    extract::{DefaultBodyLimit, Request, State},
     http::{self, HeaderMap, HeaderValue, StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
@@ -71,7 +71,8 @@ async fn main() {
         .allow_private_network(true);
 
     let app = Router::new()
-        .route("/solve", post(solve))
+        // base64 of the 256KB image max is ~350KB; 2MB axum default invites floods
+        .route("/solve", post(solve).layer(DefaultBodyLimit::max(512 * 1024)))
         .route("/health", get(health))
         .merge(report_routes)
         .merge(malformed_routes)
