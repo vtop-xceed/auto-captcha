@@ -273,6 +273,10 @@ async fn save_malformed_image(dir: &str, data: &[u8]) -> Option<String> {
 }
 
 async fn download_malformed(State(state): State<Arc<AppState>>) -> Result<Response, StatusCode> {
+    // zip or io failure in here is opaque to the caller; same 500 everywhere
+    fn e500() -> StatusCode {
+        StatusCode::INTERNAL_SERVER_ERROR
+    }
     let mut names = list_malformed(&state.report_dir).await;
     let start = names.len().saturating_sub(MAX_ZIP_ENTRIES);
     let names = names.split_off(start);
@@ -285,18 +289,11 @@ async fn download_malformed(State(state): State<Arc<AppState>>) -> Result<Respon
     for name in &names {
         let data = tokio::fs::read(format!("{}/{}", state.report_dir, name))
             .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        if let Err(_e) = zip.start_file(name.as_str(), options) {
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        }
-        if zip.write_all(&data).is_err() {
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        }
+            .map_err(|_| e500())?;
+        zip.start_file(name.as_str(), options).map_err(|_| e500())?;
+        zip.write_all(&data).map_err(|_| e500())?;
     }
-    let buf = match zip.finish() {
-        Ok(buf) => buf,
-        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
-    };
+    let buf = zip.finish().map_err(|_| e500())?;
 
     for name in &names {
         let _ = tokio::fs::remove_file(format!("{}/{}", state.report_dir, name)).await;
