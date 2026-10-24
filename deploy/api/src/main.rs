@@ -1,7 +1,7 @@
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Request, State},
-    http::{self, HeaderMap, HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     body::Bytes,
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -97,7 +97,7 @@ async fn basic_auth(State(state): State<Arc<AppState>>, req: Request, next: Next
     (
         StatusCode::UNAUTHORIZED,
         [(
-            http::header::WWW_AUTHENTICATE,
+            header::WWW_AUTHENTICATE,
             "Basic realm=\"captcha-api\"",
         )],
         "Authentication required",
@@ -301,11 +301,11 @@ async fn download_malformed(State(state): State<Arc<AppState>>) -> Result<Respon
         .log(format!("purged {} images into zip", names.len()));
     let mut resp = (StatusCode::OK, buf).into_response();
     resp.headers_mut().insert(
-        http::header::CONTENT_TYPE,
+        header::CONTENT_TYPE,
         HeaderValue::from_static("application/zip"),
     );
     resp.headers_mut().insert(
-        http::header::CONTENT_DISPOSITION,
+        header::CONTENT_DISPOSITION,
         HeaderValue::from_str(&format!(
             "attachment; filename=\"malformed-{stamp}.zip\""
         ))
