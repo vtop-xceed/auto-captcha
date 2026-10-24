@@ -169,8 +169,11 @@ async fn solve(
         .unwrap_or(false);
     if !decode_ok {
         state.logs.served_failure();
-        let name = save_malformed_image(&state.report_dir, &image_data).await;
-        state.logs.log(format!("solve 400 malformed; saved {name}"));
+        let line = match save_malformed_image(&state.report_dir, &image_data).await {
+            Some(n) => format!("solve 400 malformed; saved {n}"),
+            None => "solve 400 malformed; report dir full".into(),
+        };
+        state.logs.log(line);
         return Err(StatusCode::BAD_REQUEST);
     }
 
@@ -221,22 +224,14 @@ async fn solve(
     Ok(Json(SolveResponse { text }))
 }
 
-// ponytail: same-millisecond collisions overwrite; fine for a diagnostic dir
-async fn save_malformed_image(dir: &str, data: &[u8]) -> String {
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let name = format!("report_{millis}.png");
-    if let Err(e) = tokio::fs::write(format!("{dir}/{name}"), data).await {
-        eprintln!("Failed to save malformed image: {}", e);
-    }
-    name
-}
+// flood floor: a public /solve can drop unbounded files otherwise; the purge
+// then zips the whole dir into memory. Both sides are capped instead.
+const MAX_MALFORMED_FILES: usize = 200;
+const MAX_ZIP_ENTRIES: usize = 64;
 
-async fn download_malformed(State(state): State<Arc<AppState>>) -> Result<Response, StatusCode> {
+async fn list_malformed(dir: &str) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
-    if let Ok(mut dir) = tokio::fs::read_dir(&state.report_dir).await {
+    if let Ok(mut dir) = tokio::fs::read_dir(dir).await {
         while let Ok(Some(entry)) = dir.next_entry().await {
             let name = entry.file_name().to_string_lossy().into_owned();
             if valid_report_name(&name) {
@@ -245,6 +240,30 @@ async fn download_malformed(State(state): State<Arc<AppState>>) -> Result<Respon
         }
     }
     names.sort();
+    names
+}
+
+// ponytail: same-millisecond collisions overwrite; fine for a diagnostic dir
+async fn save_malformed_image(dir: &str, data: &[u8]) -> Option<String> {
+    if list_malformed(dir).await.len() >= MAX_MALFORMED_FILES {
+        return None;
+    }
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let name = format!("report_{millis}.png");
+    if let Err(e) = tokio::fs::write(format!("{dir}/{name}"), data).await {
+        eprintln!("Failed to save malformed image: {}", e);
+    }
+    Some(name)
+}
+
+async fn download_malformed(State(state): State<Arc<AppState>>) -> Result<Response, StatusCode> {
+    let mut names = list_malformed(&state.report_dir).await;
+    let start = names.len().saturating_sub(MAX_ZIP_ENTRIES);
+    let names = names.split_off(start);
+    let total_files = start + names.len();
 
     let buf = Cursor::new(Vec::new());
     let mut zip = ZipWriter::new(buf);
@@ -284,8 +303,17 @@ async fn download_malformed(State(state): State<Arc<AppState>>) -> Result<Respon
     );
     resp.headers_mut().insert(
         http::header::CONTENT_DISPOSITION,
-        HeaderValue::from_str(&format!("attachment; filename=\"malformed-{stamp}.zip\"")).unwrap(),
+        HeaderValue::from_str(&format!(
+            "attachment; filename=\"malformed-{stamp}.zip\""
+        ))
+        .unwrap(),
     );
+    if total_files > MAX_ZIP_ENTRIES {
+        state.logs.log(format!(
+            "{} malformed images remain on disk (zip capped at {MAX_ZIP_ENTRIES}; dir capped at {MAX_MALFORMED_FILES})",
+            total_files - names.len()
+        ));
+    }
     Ok(resp)
 }
 
