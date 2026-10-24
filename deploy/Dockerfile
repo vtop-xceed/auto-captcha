@@ -26,7 +26,11 @@ COPY deploy/captcha_model.onnx /app/model/captcha_model.onnx
 COPY deploy/captcha_model.onnx.data /app/model/captcha_model.onnx.data
 
 COPY deploy/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh \
+  && useradd -r app \
+  && mkdir -p /app/reports && chown app /app/reports
+# unprivileged runtime; named volumes inherit the dir's ownership on init
+USER app
 
 # Default ports and paths
 ENV PORT=3000
