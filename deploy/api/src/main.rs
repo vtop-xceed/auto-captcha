@@ -153,6 +153,13 @@ fn valid_report_name(name: &str) -> bool {
         && name.ends_with(".png")
 }
 
+// every failure path: accounting + log + status in one place
+fn deny(logs: &Logs, msg: impl std::fmt::Display, code: StatusCode) -> StatusCode {
+    logs.served_failure();
+    logs.log(msg.to_string());
+    code
+}
+
 async fn solve(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<SolveRequest>,
@@ -162,38 +169,33 @@ async fn solve(
     let image_data = match STANDARD.decode(&payload.image) {
         Ok(d) => d,
         Err(_) => {
-            state.logs.served_failure();
-            state.logs.log("solve 400 bad base64".into());
-            return Err(StatusCode::BAD_REQUEST);
+            return Err(deny(&state.logs, "solve 400 bad base64", StatusCode::BAD_REQUEST));
         }
     };
 
     if image_data.len() > MAX_IMAGE_BYTES {
-        state.logs.served_failure();
-        state.logs.log(format!("solve 413 {}B", image_data.len()));
-        return Err(StatusCode::PAYLOAD_TOO_LARGE);
+        return Err(deny(
+            &state.logs,
+            format!("solve 413 {}B", image_data.len()),
+            StatusCode::PAYLOAD_TOO_LARGE,
+        ));
     }
 
     // a hung solver used to wedge the task forever; the whole exchange is bounded
     let io = async {
-        let mut stream = UnixStream::connect(&state.solver_socket).await.map_err(|_| {
-            state.logs.served_failure();
-            state.logs.log("solve 503 solver unreachable".into());
-            StatusCode::SERVICE_UNAVAILABLE
-        })?;
+        let mut stream = UnixStream::connect(&state.solver_socket)
+            .await
+            .map_err(|_| deny(&state.logs, "solve 503 solver unreachable", StatusCode::SERVICE_UNAVAILABLE))?;
 
         let len = image_data.len() as u32;
         stream.write_all(&len.to_le_bytes()).await.map_err(|_| {
-            state.logs.served_failure();
-            StatusCode::INTERNAL_SERVER_ERROR
+            deny(&state.logs, "solve 500 solver write", StatusCode::INTERNAL_SERVER_ERROR)
         })?;
         stream.write_all(&image_data).await.map_err(|_| {
-            state.logs.served_failure();
-            StatusCode::INTERNAL_SERVER_ERROR
+            deny(&state.logs, "solve 500 solver write", StatusCode::INTERNAL_SERVER_ERROR)
         })?;
         stream.shutdown().await.map_err(|_| {
-            state.logs.served_failure();
-            StatusCode::INTERNAL_SERVER_ERROR
+            deny(&state.logs, "solve 500 solver write", StatusCode::INTERNAL_SERVER_ERROR)
         })?;
 
         let mut text = String::new();
@@ -201,38 +203,28 @@ async fn solve(
             .read_to_string(&mut text)
             .await
             .map(|_| text)
-            .map_err(|_| {
-                state.logs.served_failure();
-                state.logs.log("solve 500 solver io".into());
-                StatusCode::INTERNAL_SERVER_ERROR
-            })
+            .map_err(|_| deny(&state.logs, "solve 500 solver io", StatusCode::INTERNAL_SERVER_ERROR))
     };
     let text = match tokio::time::timeout(Duration::from_secs(10), io).await {
         Ok(r) => r?,
         Err(_) => {
-            state.logs.served_failure();
-            state.logs.log("solve 503 solver timeout".into());
-            return Err(StatusCode::SERVICE_UNAVAILABLE);
+            return Err(deny(&state.logs, "solve 503 solver timeout", StatusCode::SERVICE_UNAVAILABLE));
         }
     };
 
     // solver marks internal failures with "!"; EOF can no longer fake an
     // empty-success decode
     if text == "!" {
-        state.logs.served_failure();
-        state.logs.log("solve 500 solver err".into());
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        return Err(deny(&state.logs, "solve 500 solver err", StatusCode::INTERNAL_SERVER_ERROR));
     }
 
     // solver marks undecodable input with "?" (outside its output alphabet)
     if text == "?" {
-        state.logs.served_failure();
         let line = match save_malformed_image(&state.report_dir, &image_data).await {
             Some(n) => format!("solve 400 malformed; saved {n}"),
             None => "solve 400 malformed; report dir full".into(),
         };
-        state.logs.log(line);
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(deny(&state.logs, line, StatusCode::BAD_REQUEST));
     }
 
     state.logs.served.fetch_add(1, Ordering::Relaxed);
