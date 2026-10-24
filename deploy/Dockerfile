@@ -35,6 +35,10 @@ USER app
 # Default ports and paths
 ENV PORT=3000
 ENV MODEL_PATH=/app/model/captcha_model.onnx
+# one ORT session: the pool of 4 loses ~25% rps fighting over a <1-core share
+# (measured old 3.6 vs pooled 2.7 on the same upgrade slot). Raise via env
+# (SOLVER_SESSIONS=2..4) only when the host gives the container real parallelism
+ENV SOLVER_SESSIONS=1
 # AUTH_PASSWORD must come from the runtime environment (Render dashboard /
 # compose `environment:`), NOT the build: anyone with the image could read a
 # build-arg back out. It guards only /malformed; unset = route 404s (fail-closed).

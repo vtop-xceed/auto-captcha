@@ -9,6 +9,7 @@ services:
       - reports:/app/reports
     environment:
       - AUTH_PASSWORD=${AUTH_PASSWORD:-}
+      - SOLVER_SESSIONS=${SOLVER_SESSIONS:-}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000/health"]
