@@ -12,6 +12,7 @@ permissions:
 jobs:
   fetch:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       RUN_ID: ${{ github.run_id }}
     steps:
@@ -21,7 +22,8 @@ jobs:
         id: fetch
         run: |
           mkdir -p /tmp/batch
-          curl -sSf --user "admin:${AUTH_PASSWORD}" "${HOST_URL%/}/malformed" -o /tmp/malformed.zip
+          # bounded: a hung host connection would burn the job otherwise
+          curl -sSf -m 60 --retry 2 --user "admin:${AUTH_PASSWORD}" "${HOST_URL%/}/malformed" -o /tmp/malformed.zip
           unzip -o -j -d /tmp/batch /tmp/malformed.zip || true # empty month passes through
           find /tmp/batch -type f ! -name '*.png' -delete
           echo "count=$(find /tmp/batch -name '*.png' | wc -l)" >> "$GITHUB_OUTPUT"

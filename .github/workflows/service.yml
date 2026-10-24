@@ -10,9 +10,15 @@ on:
 permissions:
   contents: read
 
+# push bursts used to bill 6 overlapping runs; later pushes supersede earlier ones
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   rust:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: deploy/api
@@ -30,6 +36,7 @@ jobs:
 
   docker-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - name: Stub model files (build check only)

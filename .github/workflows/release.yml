@@ -11,12 +11,26 @@ permissions:
 jobs:
   image:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-      - name: Stub model files (image must build; model comes from deploy/ on local builds)
+      # the repo does not track model binaries (gitignored) — pull the shipped
+      # model artifact from the last successful model-refresh run instead;
+      # without this a tag release would bake a ZERO-byte stub model
+      - name: Pull model from the latest model-refresh artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          RUN_ID=$(gh run list --workflow model-refresh --status success -L 10 --json databaseId --jq '.[0].databaseId')
+          if [ -z "$RUN_ID" ]; then
+            echo "::error::no successful model-refresh run exists — dispatch model-refresh before tagging a release"
+            exit 1
+          fi
+          echo "using model artifact from run $RUN_ID"
+          mk="/tmp/art/run-${RUN_ID}"; gh run download "$RUN_ID" -D "$mk"
           mkdir -p deploy
-          touch deploy/captcha_model.onnx deploy/captcha_model.onnx.data
+          cp "$mk"/model-*/deploy/captcha_model.onnx "$mk"/model-*/deploy/captcha_model.onnx.data deploy/
+          ls -la deploy/captcha_model.onnx deploy/captcha_model.onnx.data
       - name: Log into GHCR
         uses: docker/login-action@v4
         with:

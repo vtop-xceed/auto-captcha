@@ -11,6 +11,12 @@ permissions:
   packages: write
   pull-requests: write # for the chained fetch-malformed PR
 
+# a stacked second dispatch started a second 2.5h retrain alongside the first;
+# each canceled run still bills to its cancel point (≈2.5h), so keep one train
+concurrency:
+  group: model-refresh
+  cancel-in-progress: true
+
 jobs:
   # Preserve live captured data before anything else: fetch the malformed zip
   # and archive it via PR, then train on the already-merged labeled dataset.
@@ -24,6 +30,8 @@ jobs:
     if: ${{ always() }}
     needs: [fetch-malformed]
     runs-on: ubuntu-latest
+    # training takes ~2.5h; without this a hung step bills indefinitely
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v7
 
@@ -76,7 +84,9 @@ jobs:
           docker push "ghcr.io/${{ github.repository }}:latest"
 
       - name: Trigger Render redeploy
-        run: curl -sSf -X POST "$RENDER_DEPLOY_HOOK_URL"
+        # hook hiccups sleep 400s on the first cold wake; retry so a
+        # successful image push never ends in a red run
+        run: curl -sSf --retry 3 --retry-delay 30 -X POST "$RENDER_DEPLOY_HOOK_URL"
         env:
           RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
 
