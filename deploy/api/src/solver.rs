@@ -10,6 +10,9 @@ use tokio::net::UnixListener;
 
 const CHARS: &str = "0123456789abcdefghijklmnopqrstuvwxyz";
 const SOCKET_PATH: &str = "/tmp/captop-solver.sock";
+// mirrors the api's own cap before it writes the prefix; a foreign/local
+// process claiming u32::MAX would otherwise allocate 4GB on first read
+const MAX_IMAGE_BYTES: u32 = 256 * 1024;
 
 #[tokio::main]
 async fn main() {
@@ -64,6 +67,9 @@ async fn handle_connection(
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Read 4-byte length prefix (little-endian u32)
     let len = stream.read_u32_le().await?;
+    if len > MAX_IMAGE_BYTES {
+        return Err(format!("image too large: {len}B").into());
+    }
 
     // Read image bytes
     let mut image_data = vec![0u8; len as usize];
