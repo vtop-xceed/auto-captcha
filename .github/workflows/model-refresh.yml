@@ -86,6 +86,11 @@ jobs:
           docker push "ghcr.io/${{ github.repository }}:${TAG}"
           docker push "ghcr.io/${{ github.repository }}:latest"
 
+      - name: Trigger Render redeploy
+        run: curl -sSf -X POST "$RENDER_DEPLOY_HOOK_URL"
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+
       - uses: actions/upload-artifact@v4
         with:
           name: model-${{ github.run_id }}
