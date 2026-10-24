@@ -53,8 +53,14 @@ async fn main() {
         state.logs.log(format!("report dir unavailable: {e}"));
     }
 
+    // report page + its data are public; only the malformed-zip purge needs a password
     let report_routes = Router::new()
-        .route("/report", get(status_page))
+        .route("/report", get(report_page))
+        .route("/report.css", get(report_css))
+        .route("/report.js", get(report_js))
+        .route("/report/data", get(report_data));
+
+    let malformed_routes = Router::new()
         .route("/malformed", get(download_malformed))
         .layer(middleware::from_fn_with_state(state.clone(), basic_auth));
 
@@ -68,6 +74,7 @@ async fn main() {
         .route("/solve", post(solve))
         .route("/health", get(health))
         .merge(report_routes)
+        .merge(malformed_routes)
         .layer(cors)
         .with_state(state);
 
@@ -140,16 +147,17 @@ async fn solve(
 ) -> Result<Json<SolveResponse>, StatusCode> {
     let now = now_secs();
     state.logs.log_request(now);
-    state.logs.total_requests.fetch_add(1, Ordering::Relaxed);
     let image_data = match STANDARD.decode(&payload.image) {
         Ok(d) => d,
         Err(_) => {
+            state.logs.served_failure();
             state.logs.log("solve 400 bad base64".into());
             return Err(StatusCode::BAD_REQUEST);
         }
     };
 
     if image_data.len() > MAX_IMAGE_BYTES {
+        state.logs.served_failure();
         state.logs.log(format!("solve 413 {}B", image_data.len()));
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
@@ -159,6 +167,7 @@ async fn solve(
         .map(|r| r.decode().is_ok())
         .unwrap_or(false);
     if !decode_ok {
+        state.logs.served_failure();
         let name = save_malformed_image(&state.report_dir, &image_data).await;
         state.logs.log(format!("solve 400 malformed; saved {name}"));
         return Err(StatusCode::BAD_REQUEST);
@@ -167,6 +176,7 @@ async fn solve(
     let mut stream = match UnixStream::connect(&state.solver_socket).await {
         Ok(s) => s,
         Err(_) => {
+            state.logs.served_failure();
             state.logs.log("solve 503 solver unreachable".into());
             return Err(StatusCode::SERVICE_UNAVAILABLE);
         }
@@ -176,22 +186,33 @@ async fn solve(
     stream
         .write_all(&len.to_le_bytes())
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| {
+            state.logs.served_failure();
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     stream
         .write_all(&image_data)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| {
+            state.logs.served_failure();
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     stream
         .shutdown()
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| {
+            state.logs.served_failure();
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let mut text = String::new();
     stream.read_to_string(&mut text).await.map_err(|_| {
+        state.logs.served_failure();
         state.logs.log("solve 500 solver io".into());
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
+    state.logs.served.fetch_add(1, Ordering::Relaxed);
     state.logs.log(format!("solve 200 ({} chars)", text.len()));
     Ok(Json(SolveResponse { text }))
 }
@@ -269,13 +290,13 @@ async fn health() -> StatusCode {
 }
 
 const LOG_CAP: usize = 500;
-const TIMELINE_DAYS: u64 = 30;
 const TIMELINE_MAX_ENTRIES: usize = 20_000;
 
 struct Logs {
     start: Instant,
-    total_requests: AtomicU64,
-    lines: std::sync::Mutex<VecDeque<String>>,
+    served: AtomicU64,
+    failed: AtomicU64,
+    lines: std::sync::Mutex<VecDeque<(u64, String)>>,
     times: std::sync::Mutex<VecDeque<u64>>,
 }
 
@@ -283,26 +304,28 @@ impl Logs {
     fn new() -> Self {
         Self {
             start: Instant::now(),
-            total_requests: AtomicU64::new(0),
+            served: AtomicU64::new(0),
+            failed: AtomicU64::new(0),
             lines: std::sync::Mutex::new(VecDeque::new()),
             times: std::sync::Mutex::new(VecDeque::new()),
         }
     }
 
     fn log(&self, msg: String) {
-        let s = self.start.elapsed().as_secs();
         let mut lines = self.lines.lock().unwrap();
-        lines.push_back(format!("[+{s}s] {msg}"));
+        lines.push_back((now_secs(), msg));
         while lines.len() > LOG_CAP {
             lines.pop_front();
         }
     }
 
+    fn served_failure(&self) {
+        self.failed.fetch_add(1, Ordering::Relaxed);
+    }
+
     fn log_request(&self, now: u64) {
         let mut times = self.times.lock().unwrap();
         times.push_back(now);
-        let cutoff = now_secs().saturating_sub(TIMELINE_DAYS * 86400 - 1);
-        times.retain(|&t| t >= cutoff);
         while times.len() > TIMELINE_MAX_ENTRIES {
             times.pop_front();
         }
@@ -316,147 +339,43 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-// 30 buckets of daily request counts, index 0 = today
-fn daily_buckets(times: &std::sync::Mutex<VecDeque<u64>>, now: u64) -> [u64; 30] {
-    let times = times.lock().unwrap();
-    let mut buckets = [0u64; 30];
-    for &t in times.iter() {
-        let day = now.saturating_sub(t) / 86400;
-        if let Some(c) = buckets.get_mut(day as usize) {
-            *c += 1;
-        }
-    }
-    buckets
+#[derive(Serialize)]
+struct ReportData {
+    now: u64,
+    uptime: u64,
+    served: u64,
+    failed: u64,
+    logs: Vec<(u64, String)>,
+    times: Vec<u64>,
 }
 
-fn fmt_uptime(secs: u64) -> String {
-    format!(
-        "{}d {:02}:{:02}:{:02}",
-        secs / 86400,
-        secs % 86400 / 3600,
-        secs % 3600 / 60,
-        secs % 60
+// report page + its data are public and rendered client-side (see report.html)
+async fn report_page() -> Html<&'static str> {
+    Html(include_str!("report.html"))
+}
+
+async fn report_css() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE, "text/css")], include_str!("report.css"))
+}
+
+async fn report_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/javascript")],
+        include_str!("report.js"),
     )
 }
 
-fn timeline_svg(buckets: &[u64; 30], max: u64) -> String {
-    const W: f64 = 660.0;
-    const X0: f64 = 46.0;
-    const TOP: f64 = 10.0;
-    const BOTTOM: f64 = 118.0;
-    let bw = (W - X0 - 4.0) / buckets.len() as f64;
-    let y = |v: u64| {
-        BOTTOM
-            - if max > 0 {
-                (v as f64 / max as f64) * (BOTTOM - TOP)
-            } else {
-                0.0
-            }
-    };
-    let mut out = String::from("<svg viewBox=\"0 0 660 130\" preserveAspectRatio=\"none\">");
-    for v in [max, max.div_ceil(2), 0] {
-        let g = y(v);
-        out.push_str(&format!(
-            "<line x1=\"{X0}\" x2=\"{W}\" y1=\"{g:.1}\" y2=\"{g:.1}\" class=\"grid\"/>"
-        ));
-        out.push_str(&format!(
-            "<text class=\"ax\" x=\"0\" y=\"{:.1}\">{v}</text>",
-            g + 3.0
-        ));
-    }
-    if buckets[0] > 0 {
-        out.push_str(&format!(
-            "<text class=\"ax\" x=\"{:.1}\" y=\"{:.1}\" text-anchor=\"middle\">{}</text>",
-            X0 + bw / 2.0,
-            y(buckets[0]) - 4.0,
-            buckets[0]
-        ));
-    }
-    for (i, &c) in buckets.iter().enumerate() {
-        if c == 0 {
-            continue;
-        }
-        out.push_str(&format!(
-            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" class=\"bar\"/>",
-            X0 + i as f64 * bw + 1.5,
-            y(c),
-            bw - 3.0,
-            BOTTOM - y(c)
-        ));
-    }
-    out.push_str("</svg>");
-    out
-}
-
-async fn status_page(State(state): State<Arc<AppState>>) -> Html<String> {
-    let lines: Vec<String> = state
-        .logs
-        .lines
-        .lock()
-        .unwrap()
-        .iter()
-        .rev()
-        .cloned()
-        .collect();
-    let buckets = daily_buckets(&state.logs.times, now_secs());
-    let max = *buckets.iter().max().unwrap();
-    let last_req = state.logs.times.lock().unwrap().back().copied();
-    let timeline_caption = match last_req {
-        Some(t) => format!(
-            "requests per day &middot; last 30d &middot; peak {max} &middot; last request {}s ago",
-            now_secs().saturating_sub(t)
-        ),
-        None => "no requests yet".to_string(),
-    };
-    let log_html = if lines.is_empty() {
-        "<li class=\"dim\">nothing yet</li>".to_string()
-    } else {
-        lines
-            .iter()
-            .map(|l| format!("<li>{l}</li>"))
-            .collect::<Vec<_>>()
-            .join("")
-    };
-
-    Html(format!(
-        r#"<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta http-equiv="refresh" content="5"><title>API log</title>
-<style>
-html, body {{ background: #000; color: #0f0; font: 13px/1.5 monospace; margin: 0; }}
-body {{ padding: 2rem; }}
-h1 {{ font-size: 1rem; font-weight: normal; margin: 0 0 1.5rem; }}
-.kpis {{ display: flex; gap: 3rem; flex-wrap: wrap; margin-bottom: 1.5rem; }}
-.kpi b {{ display: block; font-size: 1.6rem; font-weight: normal; }}
-.kpi span {{ color: #555; font-size: .75rem; }}
-svg {{ width: 100%; max-width: 800px; height: 130px; display: block; margin: .4rem 0 1rem; }}
-svg .bar {{ fill: #3f3; }}
-svg .grid {{ stroke: #1c1c1c; }}
-svg .ax {{ fill: #555; font-size: 10px; }}
-#log-title {{ color: #555; font-size: .75rem; font-weight: normal; margin: 1.6rem 0 0; }}
-ul {{ list-style: none; padding: 0; margin: .6rem 0; max-width: 900px; }}
-li {{ padding: 3px 0; border-bottom: 1px solid #111; }}
-.dim {{ color: #333; }}
-footer {{ color: #444; font-size: .75rem; margin-top: 1.8rem; }}
-</style></head><body>
-<h1>captcha-api log</h1>
-<div class="kpis">
-<div class="kpi"><b>{}</b><span>uptime</span></div>
-<div class="kpi"><b>{}</b><span>total requests</span></div>
-<div class="kpi"><b>{}</b><span>log lines kept</span></div>
-</div>
-<p id="log-title">{}</p>
-{}
-<p id="log-title">requests timeline &middot; one green bar = one day, last 30 days &middot; numbers = requests/day</p>
-<ul>{}</ul>
-<footer>last 500 events, newest first &middot; auto-refresh 5s</footer>
-</body></html>"#,
-        fmt_uptime(state.logs.start.elapsed().as_secs()),
-        state.logs.total_requests.load(Ordering::Relaxed),
-        lines.len(),
-        timeline_caption,
-        timeline_svg(&buckets, max),
-        log_html,
-    ))
+async fn report_data(State(state): State<Arc<AppState>>) -> Json<ReportData> {
+    let logs = state.logs.lines.lock().unwrap().iter().cloned().collect();
+    let times = state.logs.times.lock().unwrap().iter().cloned().collect();
+    Json(ReportData {
+        now: now_secs(),
+        uptime: state.logs.start.elapsed().as_secs(),
+        served: state.logs.served.load(Ordering::Relaxed),
+        failed: state.logs.failed.load(Ordering::Relaxed),
+        logs,
+        times,
+    })
 }
 
 #[cfg(test)]
@@ -509,24 +428,16 @@ mod tests {
         for i in 0..(LOG_CAP + 50) {
             logs.log(format!("event {i}"));
         }
-        let lines: Vec<String> = logs.lines.lock().unwrap().iter().cloned().collect();
+        let lines: Vec<String> = logs
+            .lines
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(_, m)| m.clone())
+            .collect();
         assert_eq!(lines.len(), LOG_CAP);
         assert!(lines.last().unwrap().contains("event 549"));
         assert!(lines.first().unwrap().contains("event 50"));
     }
 
-    #[test]
-    fn timeline_buckets_count_per_day() {
-        let now = now_secs();
-        let logs = Logs::new();
-        logs.log_request(now);
-        logs.log_request(now);
-        logs.log_request(now.saturating_sub(86400));
-        logs.log_request(now.saturating_sub(35 * 86400));
-        let b = daily_buckets(&logs.times, now);
-        assert_eq!(b[0], 2);
-        assert_eq!(b[1], 1);
-        assert!(b[2..].iter().all(|&x| x == 0));
-        assert_eq!(logs.times.lock().unwrap().len(), 3);
-    }
 }

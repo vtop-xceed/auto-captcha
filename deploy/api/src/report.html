@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>captcha api &middot; report</title>
+<link rel="stylesheet" href="/report.css">
+</head><body>
+<div class="card">
+<h1>captcha-api report</h1>
+<div class="kpis">
+<div class="kpi"><b id="k-uptime">&ndash;</b><span>uptime</span></div>
+<div class="kpi"><b id="k-served">&ndash;</b><span>queries served</span></div>
+<div class="kpi"><b id="k-failed">&ndash;</b><span>failed</span></div>
+<div class="kpi"><b id="k-date" class="dt">&ndash;</b><span>current data time</span></div>
+</div>
+<div class="range" id="range"></div>
+<p class="cap" id="cap"></p>
+<div id="chart"><p class="dim">waiting for data&hellip;</p></div>
+<p id="log-title">log &middot; newest first</p>
+<ul id="logs"><li class="dim">waiting for data&hellip;</li></ul>
+<footer id="foot">auto-refresh 5s &middot; rendered client-side</footer>
+</div>
+<script src="/report.js"></script>
+</body></html>
