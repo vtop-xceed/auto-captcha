@@ -151,7 +151,7 @@ fn valid_report_name(name: &str) -> bool {
 
 // every failure path: accounting + log + status in one place
 fn deny(logs: &Logs, msg: impl std::fmt::Display, code: StatusCode) -> StatusCode {
-    logs.served_failure();
+    logs.failed.fetch_add(1, Ordering::Relaxed);
     logs.log(msg.to_string());
     code
 }
@@ -372,10 +372,6 @@ impl Logs {
         }
         drop(lines);
         self.perm.fetch_add(1, Ordering::Relaxed);
-    }
-
-    fn served_failure(&self) {
-        self.failed.fetch_add(1, Ordering::Relaxed);
     }
 
     fn log_request(&self) {
