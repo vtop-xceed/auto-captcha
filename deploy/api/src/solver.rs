@@ -81,7 +81,12 @@ async fn handle_connection(
     mut stream: tokio::net::UnixStream,
     session: &Arc<Mutex<Session>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let len = stream.read_u32_le().await?; // LE u32, matches api's prefix write
+    let len = match stream.read_u32_le().await {
+        Ok(l) => l,
+        // healthcheck probe connects and immediately closes to verify listener is up
+        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
+        Err(e) => return Err(e.into()),
+    };
     if len > MAX_IMAGE_BYTES {
         return Err(format!("image too large: {len}B").into());
     }
