@@ -13,7 +13,7 @@ use std::collections::VecDeque;
 use std::io::{Cursor, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 use tower_http::cors::{Any, CorsLayer};
@@ -174,44 +174,47 @@ async fn solve(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let mut stream = match UnixStream::connect(&state.solver_socket).await {
-        Ok(s) => s,
-        Err(_) => {
+    // a hung solver used to wedge the task forever; the whole exchange is bounded
+    let io = async {
+        let mut stream = UnixStream::connect(&state.solver_socket).await.map_err(|_| {
             state.logs.served_failure();
             state.logs.log("solve 503 solver unreachable".into());
+            StatusCode::SERVICE_UNAVAILABLE
+        })?;
+
+        let len = image_data.len() as u32;
+        stream.write_all(&len.to_le_bytes()).await.map_err(|_| {
+            state.logs.served_failure();
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+        stream.write_all(&image_data).await.map_err(|_| {
+            state.logs.served_failure();
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+        stream.shutdown().await.map_err(|_| {
+            state.logs.served_failure();
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+        let mut text = String::new();
+        stream
+            .read_to_string(&mut text)
+            .await
+            .map(|_| text)
+            .map_err(|_| {
+                state.logs.served_failure();
+                state.logs.log("solve 500 solver io".into());
+                StatusCode::INTERNAL_SERVER_ERROR
+            })
+    };
+    let text = match tokio::time::timeout(Duration::from_secs(30), io).await {
+        Ok(r) => r?,
+        Err(_) => {
+            state.logs.served_failure();
+            state.logs.log("solve 503 solver timeout".into());
             return Err(StatusCode::SERVICE_UNAVAILABLE);
         }
     };
-
-    let len = image_data.len() as u32;
-    stream
-        .write_all(&len.to_le_bytes())
-        .await
-        .map_err(|_| {
-            state.logs.served_failure();
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-    stream
-        .write_all(&image_data)
-        .await
-        .map_err(|_| {
-            state.logs.served_failure();
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-    stream
-        .shutdown()
-        .await
-        .map_err(|_| {
-            state.logs.served_failure();
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-    let mut text = String::new();
-    stream.read_to_string(&mut text).await.map_err(|_| {
-        state.logs.served_failure();
-        state.logs.log("solve 500 solver io".into());
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
 
     state.logs.served.fetch_add(1, Ordering::Relaxed);
     state.logs.log(format!("solve 200 ({} chars)", text.len()));
