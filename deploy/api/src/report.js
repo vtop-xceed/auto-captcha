@@ -53,10 +53,7 @@ const fmtDateTime = t => {
     + " " + pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes()) + ":" + pad(d.getUTCSeconds());
 };
 const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-const parseCode = m => {
-  const hit = m.match(/^solve (\d{3})/);
-  return hit ? hit[1] : null;
-};
+const parseCode = m => (m.match(/^solve (\d{3})/) || [])[1] || null;
 const dspRel = (now, t) => { const r = fmtRel(now, t); return r === "now" ? "just now" : r + " ago"; };
 
 // ---- timeline ----
@@ -109,7 +106,7 @@ function render() {
   const now = Math.floor(Date.now() / 1000);
   const d = data;
   document.getElementById("k-uptime").textContent = fmtUptime(d.uptime);
-  document.getElementById("k-served").textContent = d.served ?? d.total_requests ?? 0;
+  document.getElementById("k-served").textContent = d.served ?? 0;
   document.getElementById("k-failed").textContent = d.failed ?? 0;
   document.getElementById("k-date").textContent = fmtDateTime(d.now);
 
@@ -120,8 +117,7 @@ function render() {
 
   const [secsPer, n] = granularity(range, d.uptime);
   const span = secsPer * n;
-  const [svg, busiest] = dotSvg(d.times, now, span);
-  const max = busiest;
+  const [svg, max] = dotSvg(d.times, now, span);
   const last = d.times.length ? d.times[d.times.length - 1] : null;
   document.getElementById("cap").textContent =
     `requests \u00b7 ${TABS.find(t => t[0] === range)[1]} \u00b7 busiest ${max} \u00b7 ` +
@@ -151,8 +147,7 @@ if (location.search.includes("selftest")) {
   const A = (c, m) => { if (!c) fails.push(m); console.log(c ? "PASS" : "FAIL", m); };
   const now = daysFuel(2026, 3, 15);
   function daysFuel(y, m, d) { return Date.UTC(y, m - 1, d) / 1000; }
-  A(fmtRel(now, now) === "now", "rel now");
-  A(dspRel(now, now) === "just now", "rel just now");
+  A(dspRel(now, now) === "just now", "rel now → just now");
   A(dspRel(now, now - 90 * 60) === "1h 30m ago", "ago wording");
   A(dspRel(now, now + 10) === "just now", "rel future");
   A(parseCode("solve 200 (6 chars)") === "200", "code 200");
@@ -163,7 +158,6 @@ if (location.search.includes("selftest")) {
   A(dots.includes(`<title>${fmtDateTime(now - 10)}</title>`), "dot hover timestamp");
   A(dots.includes('text-anchor="end"'), "axis ticks");
   A(/(am|pm)/.test(dots), "hour labels");
-  A(fmtRel(now, now - 90 * 60) === "1h 30m", "rel 90m");
   A(fmtRel(now, now - 4 * 86400 - 3 * 3600) === "4d 3h", "rel 4d3h");
   A(fmtRel(now, now - 3720) === "1h 2m", "rel 62min");
   A(fmtRel(now, daysFuel(2026, 1, 31)) === "1mo 15d", "rel months");
