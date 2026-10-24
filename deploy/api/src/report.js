@@ -1,6 +1,8 @@
 "use strict";
 const TABS = [["24h", "24 hrs"], ["7d", "prev week"], ["30d", "prev month"], ["all", "all"]];
 let range = localStorage.reportRange || "24h";
+// stale/garbage saved keys (older deployment, manual junk) would crash render
+if (!TABS.some(t => t[0] === range)) { range = "24h"; delete localStorage.reportRange; }
 let data = null;
 let srcUrl = null;
 
@@ -83,7 +85,7 @@ function dotSvg(times, now, span) {
   const sorted = times.slice().sort((a, b) => a - b);
   for (const t of sorted) {
     const raw = (t - (now - span)) / colSecs;
-    if (raw < 0 || raw > cols) continue; // outside this range
+    if (!(raw >= 0 && raw <= cols)) continue; // outside range (NaN-safe)
     const col = Math.min(cols - 1, Math.floor(raw));
     const k = stacks[col]++;
     if (k + 1 > busiest) busiest = k + 1;
@@ -103,11 +105,13 @@ function dotSvg(times, now, span) {
 
 // ---- render ----
 function render() {
-  const now = Math.floor(Date.now() / 1000);
   const d = data;
+  // client clock behind the server would swallow newest dots (raw > cols);
+  // server time is the anchor, client time only nudges forward
+  const now = Math.max(Math.floor(Date.now() / 1000), d.now ?? 0);
   document.getElementById("k-uptime").textContent = fmtUptime(d.uptime);
-  document.getElementById("k-served").textContent = d.served ?? 0;
-  document.getElementById("k-failed").textContent = d.failed ?? 0;
+  document.getElementById("k-served").textContent = d.served;
+  document.getElementById("k-failed").textContent = d.failed;
   document.getElementById("k-date").textContent = fmtDateTime(d.now);
 
   const tabs = document.getElementById("range");
