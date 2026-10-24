@@ -14,7 +14,7 @@ RUN cargo build --release
 # Runtime stage
 FROM debian:trixie-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends libgcc1 libstdc++6 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends libgcc1 libstdc++6 wget && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
