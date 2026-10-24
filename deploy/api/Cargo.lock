@@ -127,6 +127,7 @@ dependencies = [
  "ndarray",
  "ort",
  "serde",
+ "serde_json",
  "tokio",
  "tower-http",
  "zip",

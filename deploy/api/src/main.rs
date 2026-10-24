@@ -2,6 +2,7 @@ use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Request, State},
     http::{self, HeaderMap, HeaderValue, StatusCode, header},
+    body::Bytes,
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
@@ -321,7 +322,7 @@ async fn health() -> StatusCode {
     StatusCode::OK
 }
 
-const LOG_CAP: usize = 500;
+const LOG_CAP: usize = 10_000;
 const TIMELINE_MAX_ENTRIES: usize = 20_000;
 
 struct Logs {
@@ -330,6 +331,8 @@ struct Logs {
     failed: AtomicU64,
     lines: std::sync::Mutex<VecDeque<(u64, String)>>,
     times: std::sync::Mutex<VecDeque<u64>>,
+    perm: AtomicU64,
+    cache: std::sync::Mutex<Option<(u64, Bytes, Bytes)>>,
 }
 
 impl Logs {
@@ -340,6 +343,8 @@ impl Logs {
             failed: AtomicU64::new(0),
             lines: std::sync::Mutex::new(VecDeque::new()),
             times: std::sync::Mutex::new(VecDeque::new()),
+            perm: AtomicU64::new(0),
+            cache: std::sync::Mutex::new(None),
         }
     }
 
@@ -349,6 +354,8 @@ impl Logs {
         while lines.len() > LOG_CAP {
             lines.pop_front();
         }
+        drop(lines);
+        self.perm.fetch_add(1, Ordering::Relaxed);
     }
 
     fn served_failure(&self) {
@@ -361,6 +368,24 @@ impl Logs {
         while times.len() > TIMELINE_MAX_ENTRIES {
             times.pop_front();
         }
+        drop(times);
+        self.perm.fetch_add(1, Ordering::Relaxed);
+    }
+
+    // public dashboards poll /report/data every 5s; serializing 10k logs +
+    // 20k stamps per poll was the cheapest public amplification. Cached arrays
+    // invalidated by a perm counter instead.
+    fn snapshot(&self) -> (Bytes, Bytes) {
+        let perm = self.perm.load(Ordering::Relaxed);
+        if let Some((p, logs, times)) = self.cache.lock().unwrap().as_ref()
+            && *p == perm
+        {
+            return (logs.clone(), times.clone());
+        }
+        let logs: Bytes = serde_json::to_vec(&*self.lines.lock().unwrap()).unwrap().into();
+        let times: Bytes = serde_json::to_vec(&*self.times.lock().unwrap()).unwrap().into();
+        *self.cache.lock().unwrap() = Some((perm, logs.clone(), times.clone()));
+        (logs, times)
     }
 }
 
@@ -369,16 +394,6 @@ fn now_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
-}
-
-#[derive(Serialize)]
-struct ReportData {
-    now: u64,
-    uptime: u64,
-    served: u64,
-    failed: u64,
-    logs: Vec<(u64, String)>,
-    times: Vec<u64>,
 }
 
 // report page + its data are public and rendered client-side (see report.html)
@@ -397,17 +412,27 @@ async fn report_js() -> impl IntoResponse {
     )
 }
 
-async fn report_data(State(state): State<Arc<AppState>>) -> Json<ReportData> {
-    let logs = state.logs.lines.lock().unwrap().iter().cloned().collect();
-    let times = state.logs.times.lock().unwrap().iter().cloned().collect();
-    Json(ReportData {
-        now: now_secs(),
-        uptime: state.logs.start.elapsed().as_secs(),
-        served: state.logs.served.load(Ordering::Relaxed),
-        failed: state.logs.failed.load(Ordering::Relaxed),
-        logs,
-        times,
-    })
+async fn report_data(State(state): State<Arc<AppState>>) -> Response {
+    // heavy arrays come from the cache; KPIs stay fresh per call
+    let (logs, times) = state.logs.snapshot();
+    let mut body = format!(
+        "{{\"now\":{now},\"uptime\":{uptime},\"served\":{served},\"failed\":{failed},\"logs\":",
+        now = now_secs(),
+        uptime = state.logs.start.elapsed().as_secs(),
+        served = state.logs.served.load(Ordering::Relaxed),
+        failed = state.logs.failed.load(Ordering::Relaxed),
+    )
+    .into_bytes();
+    body.extend_from_slice(&logs);
+    body.extend_from_slice(b",\"times\":");
+    body.extend_from_slice(&times);
+    body.push(b'}');
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/json")],
+        body,
+    )
+        .into_response()
 }
 
 #[cfg(test)]
@@ -468,8 +493,39 @@ mod tests {
             .map(|(_, m)| m.clone())
             .collect();
         assert_eq!(lines.len(), LOG_CAP);
-        assert!(lines.last().unwrap().contains("event 549"));
+        assert!(lines.last().unwrap().contains(&format!("event {}", LOG_CAP + 49)));
         assert!(lines.first().unwrap().contains("event 50"));
+        assert!(lines.first().unwrap().contains("event 49") == false);
+    }
+
+    #[test]
+    fn snapshot_tracks_logs_and_caches() {
+        let logs = Logs::new();
+        let empty = serde_json::from_slice::<serde_json::Value>(&logs.snapshot().0).unwrap();
+        assert!(empty.as_array().unwrap().is_empty());
+        logs.log("x".into());
+        logs.log_request(now_secs());
+        let (arr, times) = logs.snapshot();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&arr)
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&times)
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        // no new events: cache returns identical bytes
+        let (arr2, times2) = logs.snapshot();
+        assert_eq!(arr, arr2);
+        assert_eq!(times, times2);
     }
 
 }
