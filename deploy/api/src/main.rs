@@ -185,7 +185,7 @@ async fn solve(
         ));
     }
 
-    // a hung solver used to wedge the task forever; the whole exchange is bounded
+    // the 30s bound also caps a hung solver
     let io = async {
         let mut stream = UnixStream::connect(&state.solver_socket)
             .await
@@ -247,8 +247,7 @@ async fn solve(
         }
     };
 
-    // solver marks internal failures with "!"; EOF can no longer fake an
-    // empty-success decode
+    // solver marks internal failures with "!" (api answers 500)
     if text == "!" {
         return Err(deny(
             &state.logs,
@@ -319,8 +318,7 @@ async fn download_malformed(State(state): State<Arc<AppState>>) -> Result<Respon
     let names = names.split_off(start);
     let total_files = start + names.len();
 
-    // files off the wire first; zipping up to 64×256KB bzip2 is seconds of CPU,
-    // sync work used to stall a tokio worker mid-handler
+    // zipping up to 64×256KB takes seconds of CPU; keep it on the blocking pool
     let mut files = Vec::with_capacity(names.len());
     for name in &names {
         let data = tokio::fs::read(format!("{}/{}", state.report_dir, name))
@@ -359,7 +357,6 @@ async fn download_malformed(State(state): State<Arc<AppState>>) -> Result<Respon
     Ok(resp)
 }
 
-// sync zip build for spawn_blocking
 fn build_zip(
     files: Vec<(String, Vec<u8>)>,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {

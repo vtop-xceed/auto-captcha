@@ -18,7 +18,6 @@ const MAX_IMAGE_BYTES: u32 = 256 * 1024;
 // which burns stack memory and causes context switching on a 0.1 vCPU share
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    // Clean up stale socket
     let _ = std::fs::remove_file(SOCKET_PATH);
 
     let model_path =
@@ -59,8 +58,7 @@ async fn main() {
     );
 
     loop {
-        // a transient accept failure (fd exhaustion…) must not kill the solver;
-        // unwrap here turned one bad connection into a full outage
+        // a transient accept failure (fd exhaustion…) must not kill the solver
         let Ok((stream, _)) = listener.accept().await else {
             eprintln!("accept failed, retrying");
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;

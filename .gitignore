@@ -27,6 +27,7 @@ __pycache__/
 *.pyc
 runs/
 logs/
+.ruff_cache/
 
 # secrets / env
 .env
