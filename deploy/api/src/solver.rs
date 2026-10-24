@@ -85,34 +85,29 @@ async fn handle_connection(
     let mut image_data = vec![0u8; len as usize];
     stream.read_exact(&mut image_data).await?;
 
-    let text = match preprocess(&image_data) {
+    let session = session.clone();
+    let text = tokio::task::spawn_blocking(move || match preprocess(&image_data) {
         Ok(tensor) => {
-            // sync ONNX run on tokio workers used to stall accept/io tasks;
-            // and decode+resize sat inside the session lock, serializing the
-            // CPU-heavy part across connections
-            let session = session.clone();
-            tokio::task::spawn_blocking(move || {
-                // "!" marks internal failure (api answers 500), "?" marks
-                // undecodable input (api answers 400) — neither fakes a result
-                run_inference(tensor, session).unwrap_or_else(|e| {
-                    eprintln!("Solver inference error: {e}");
-                    "!".into()
-                })
-            })
-            // a panic inside run_inference must also become "!", not an early
-            // return — the open stream would EOF and the api would serve a
-            // fake empty-captcha 200
-            .await
-            .unwrap_or_else(|e| {
-                eprintln!("Solver task error: {e}");
+            // "!" marks internal failure (api answers 500), "?" marks
+            // undecodable input (api answers 400) — neither fakes a result
+            run_inference(tensor, session).unwrap_or_else(|e| {
+                eprintln!("Solver inference error: {e}");
                 "!".into()
             })
         }
         // api can't tell EOF-errors from a legit empty CTC decode, so decode
         // failures get a marker character instead of silence ("?" is outside
         // the [0-9A-Z] output alphabet)
-        Err(_) => String::from("?"),
-    };
+        Err(_) => "?".into(),
+    })
+    // a panic inside preprocess/run_inference must also become "!", not an early
+    // return — the open stream would EOF and the api would serve a fake
+    // empty-captcha 200
+    .await
+    .unwrap_or_else(|e| {
+        eprintln!("Solver task error: {e}");
+        "!".into()
+    });
 
     stream.write_all(text.as_bytes()).await?;
     stream.shutdown().await?;
