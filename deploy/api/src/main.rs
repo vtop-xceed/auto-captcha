@@ -227,7 +227,7 @@ async fn solve(
 
 // flood floor: a public /solve can drop unbounded files otherwise; the purge
 // then zips the whole dir into memory. Both sides are capped instead.
-const MAX_MALFORMED_FILES: usize = 200;
+const MAX_MALFORMED_FILES: usize = 500;
 const MAX_ZIP_ENTRIES: usize = 64;
 
 async fn list_malformed(dir: &str) -> Vec<String> {
