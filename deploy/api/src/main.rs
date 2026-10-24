@@ -1,8 +1,8 @@
 use axum::{
     Json, Router,
+    body::Bytes,
     extract::{DefaultBodyLimit, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
-    body::Bytes,
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -13,7 +13,7 @@ use std::collections::VecDeque;
 use std::io::{Cursor, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 use tower_http::cors::{Any, CorsLayer};
@@ -74,14 +74,20 @@ async fn main() {
 
     let app = Router::new()
         // base64 of the 256KB image max is ~350KB; 2MB axum default invites floods
-        .route("/solve", post(solve).layer(DefaultBodyLimit::max(512 * 1024)))
+        .route(
+            "/solve",
+            post(solve).layer(DefaultBodyLimit::max(512 * 1024)),
+        )
         .route("/health", get(health))
         .merge(report_routes)
         .merge(malformed_routes)
         .layer(cors)
         .with_state(state);
 
-    let port: u16 = std::env::var("PORT").unwrap_or_else(|_| "3000".into()).parse().unwrap();
+    let port: u16 = std::env::var("PORT")
+        .unwrap_or_else(|_| "3000".into())
+        .parse()
+        .unwrap();
 
     let addr = format!("0.0.0.0:{}", port);
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
@@ -98,10 +104,7 @@ async fn basic_auth(State(state): State<Arc<AppState>>, req: Request, next: Next
     }
     (
         StatusCode::UNAUTHORIZED,
-        [(
-            header::WWW_AUTHENTICATE,
-            "Basic realm=\"captcha-api\"",
-        )],
+        [(header::WWW_AUTHENTICATE, "Basic realm=\"captcha-api\"")],
         "Authentication required",
     )
         .into_response()
@@ -166,7 +169,11 @@ async fn solve(
     let image_data = match STANDARD.decode(&payload.image) {
         Ok(d) => d,
         Err(_) => {
-            return Err(deny(&state.logs, "solve 400 bad base64", StatusCode::BAD_REQUEST));
+            return Err(deny(
+                &state.logs,
+                "solve 400 bad base64",
+                StatusCode::BAD_REQUEST,
+            ));
         }
     };
 
@@ -182,17 +189,35 @@ async fn solve(
     let io = async {
         let mut stream = UnixStream::connect(&state.solver_socket)
             .await
-            .map_err(|_| deny(&state.logs, "solve 503 solver unreachable", StatusCode::SERVICE_UNAVAILABLE))?;
+            .map_err(|_| {
+                deny(
+                    &state.logs,
+                    "solve 503 solver unreachable",
+                    StatusCode::SERVICE_UNAVAILABLE,
+                )
+            })?;
 
         let len = image_data.len() as u32;
         stream.write_all(&len.to_le_bytes()).await.map_err(|_| {
-            deny(&state.logs, "solve 500 solver write", StatusCode::INTERNAL_SERVER_ERROR)
+            deny(
+                &state.logs,
+                "solve 500 solver write",
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
         })?;
         stream.write_all(&image_data).await.map_err(|_| {
-            deny(&state.logs, "solve 500 solver write", StatusCode::INTERNAL_SERVER_ERROR)
+            deny(
+                &state.logs,
+                "solve 500 solver write",
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
         })?;
         stream.shutdown().await.map_err(|_| {
-            deny(&state.logs, "solve 500 solver write", StatusCode::INTERNAL_SERVER_ERROR)
+            deny(
+                &state.logs,
+                "solve 500 solver write",
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
         })?;
 
         let mut text = String::new();
@@ -200,17 +225,36 @@ async fn solve(
             .read_to_string(&mut text)
             .await
             .map(|_| text)
-            .map_err(|_| deny(&state.logs, "solve 500 solver io", StatusCode::INTERNAL_SERVER_ERROR))
+            .map_err(|_| {
+                deny(
+                    &state.logs,
+                    "solve 500 solver io",
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                )
+            })
     };
-    // no exchange timeout: requests queue as long as it takes (owner's call —
-    // solver supervisor restarts dead solvers in ~2s, which also unblocks any
-    // wedged exchanges via socket errors)
-    let text = io.await?;
+    // ponytail: 30s bound covers a ~100-request burst at ~3.6 rps; past that
+    // client connections have timed out, so shedding with 503 prevents wasting
+    // scarce 0.1 vCPU compute on zombie solves
+    let text = match tokio::time::timeout(Duration::from_secs(30), io).await {
+        Ok(r) => r?,
+        Err(_) => {
+            return Err(deny(
+                &state.logs,
+                "solve 503 solver timeout",
+                StatusCode::SERVICE_UNAVAILABLE,
+            ));
+        }
+    };
 
     // solver marks internal failures with "!"; EOF can no longer fake an
     // empty-success decode
     if text == "!" {
-        return Err(deny(&state.logs, "solve 500 solver err", StatusCode::INTERNAL_SERVER_ERROR));
+        return Err(deny(
+            &state.logs,
+            "solve 500 solver err",
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ));
     }
 
     // solver marks undecodable input with "?" (outside its output alphabet)
@@ -257,9 +301,7 @@ async fn save_malformed_image(dir: &str, data: &[u8]) -> Option<String> {
     let name = format!("report_{millis}.png");
     let tmp = format!("{dir}/.{name}.part");
     let path = format!("{dir}/{name}");
-    if tokio::fs::write(&tmp, data).await.is_ok()
-        && tokio::fs::rename(&tmp, &path).await.is_ok()
-    {
+    if tokio::fs::write(&tmp, data).await.is_ok() && tokio::fs::rename(&tmp, &path).await.is_ok() {
         return Some(name);
     }
     let _ = tokio::fs::remove_file(&tmp).await;
@@ -306,10 +348,7 @@ async fn download_malformed(State(state): State<Arc<AppState>>) -> Result<Respon
     );
     resp.headers_mut().insert(
         header::CONTENT_DISPOSITION,
-        HeaderValue::from_str(&format!(
-            "attachment; filename=\"malformed-{stamp}.zip\""
-        ))
-        .unwrap(),
+        HeaderValue::from_str(&format!("attachment; filename=\"malformed-{stamp}.zip\"")).unwrap(),
     );
     if total_files > MAX_ZIP_ENTRIES {
         state.logs.log(format!(
@@ -321,7 +360,9 @@ async fn download_malformed(State(state): State<Arc<AppState>>) -> Result<Respon
 }
 
 // sync zip build for spawn_blocking
-fn build_zip(files: Vec<(String, Vec<u8>)>) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+fn build_zip(
+    files: Vec<(String, Vec<u8>)>,
+) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
     // ponytail: stored (no compression); images are already png-compressed,
     // recompressing with bzip2 burned seconds of cpu for zero byte reduction
@@ -396,8 +437,12 @@ impl Logs {
         {
             return (logs.clone(), times.clone());
         }
-        let logs: Bytes = serde_json::to_vec(&*self.lines.lock().unwrap()).unwrap().into();
-        let times: Bytes = serde_json::to_vec(&*self.times.lock().unwrap()).unwrap().into();
+        let logs: Bytes = serde_json::to_vec(&*self.lines.lock().unwrap())
+            .unwrap()
+            .into();
+        let times: Bytes = serde_json::to_vec(&*self.times.lock().unwrap())
+            .unwrap()
+            .into();
         *self.cache.lock().unwrap() = Some((perm, logs.clone(), times.clone()));
         (logs, times)
     }
@@ -421,7 +466,10 @@ const CACHE: &str = "public, max-age=300";
 
 // report page + assets are compile-time statics; only its data is live
 fn asset(ct: &'static str, body: &'static str) -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, ct), (header::CACHE_CONTROL, CACHE)], body)
+    (
+        [(header::CONTENT_TYPE, ct), (header::CACHE_CONTROL, CACHE)],
+        body,
+    )
 }
 
 async fn report_page() -> impl IntoResponse {
@@ -529,7 +577,12 @@ mod tests {
             .map(|(_, m)| m.clone())
             .collect();
         assert_eq!(lines.len(), LOG_CAP);
-        assert!(lines.last().unwrap().contains(&format!("event {}", LOG_CAP + 49)));
+        assert!(
+            lines
+                .last()
+                .unwrap()
+                .contains(&format!("event {}", LOG_CAP + 49))
+        );
         assert!(lines.first().unwrap().contains("event 50"));
         assert!(lines.first().unwrap().contains("event 49") == false);
     }

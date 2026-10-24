@@ -29,7 +29,9 @@ async fn main() {
     // ever shows up in the metrics. .max(1): SOLVER_SESSIONS=0 would modulo-panic
     // on the first request
     let pool_size: usize = std::env::var("SOLVER_SESSIONS")
-        .ok().and_then(|s| s.parse().ok()).unwrap_or(4)
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4)
         .max(1);
     let sessions: Vec<_> = (0..pool_size)
         .map(|_| {
