@@ -20,16 +20,14 @@ async fn main() {
     let _ = std::fs::remove_file(SOCKET_PATH);
 
     let model_path =
-        std::env::var("MODEL_PATH").unwrap_or_else(|_| "../model/captcha_model.onnx".to_string());
+        std::env::var("MODEL_PATH").unwrap_or_else(|_| "../model/captcha_model.onnx".into());
 
     let env = ort::init().build().unwrap();
     // ponytail: round-robin pool, no backpressure; SOLVER_SESSIONS if contention
     // ever shows up in the metrics. .max(1): SOLVER_SESSIONS=0 would modulo-panic
     // on the first request
-    let pool_size = std::env::var("SOLVER_SESSIONS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(4)
+    let pool_size: usize = std::env::var("SOLVER_SESSIONS")
+        .ok().and_then(|s| s.parse().ok()).unwrap_or(4)
         .max(1);
     let sessions: Vec<_> = (0..pool_size)
         .map(|_| {

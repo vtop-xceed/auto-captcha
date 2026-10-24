@@ -79,10 +79,7 @@ async fn main() {
         .layer(cors)
         .with_state(state);
 
-    let port = std::env::var("PORT")
-        .unwrap_or_else(|_| "3000".to_string())
-        .parse::<u16>()
-        .unwrap();
+    let port: u16 = std::env::var("PORT").unwrap_or_else(|_| "3000".into()).parse().unwrap();
 
     let addr = format!("0.0.0.0:{}", port);
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
