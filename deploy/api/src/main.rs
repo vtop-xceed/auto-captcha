@@ -248,20 +248,25 @@ async fn list_malformed(dir: &str) -> Vec<String> {
     names
 }
 
-// ponytail: same-millisecond collisions overwrite; fine for a diagnostic dir
+// ponytail: same-millisecond collisions overwrite; fine for a diagnostic dir.
+// write .part + rename so a concurrent purge can never zip a half-written file
+// (dot-names are invisible to valid_report_name); None = skipped (cap or io)
 async fn save_malformed_image(dir: &str, data: &[u8]) -> Option<String> {
     if list_malformed(dir).await.len() >= MAX_MALFORMED_FILES {
         return None;
     }
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
+    let millis = now_millis();
     let name = format!("report_{millis}.png");
-    if let Err(e) = tokio::fs::write(format!("{dir}/{name}"), data).await {
-        eprintln!("Failed to save malformed image: {}", e);
+    let tmp = format!("{dir}/.{name}.part");
+    let path = format!("{dir}/{name}");
+    if tokio::fs::write(&tmp, data).await.is_ok()
+        && tokio::fs::rename(&tmp, &path).await.is_ok()
+    {
+        return Some(name);
     }
-    Some(name)
+    let _ = tokio::fs::remove_file(&tmp).await;
+    eprintln!("Failed to save malformed image '{name}'");
+    None
 }
 
 async fn download_malformed(State(state): State<Arc<AppState>>) -> Result<Response, StatusCode> {
@@ -294,10 +299,7 @@ async fn download_malformed(State(state): State<Arc<AppState>>) -> Result<Respon
         let _ = tokio::fs::remove_file(format!("{}/{}", state.report_dir, name)).await;
     }
 
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
+    let stamp = now_millis();
     state
         .logs
         .log(format!("purged {} images into zip", names.len()));
@@ -400,6 +402,13 @@ fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn now_millis() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
         .unwrap_or(0)
 }
 
