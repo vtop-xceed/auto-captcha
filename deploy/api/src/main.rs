@@ -200,7 +200,9 @@ async fn solve(
             .map(|_| text)
             .map_err(|_| deny(&state.logs, "solve 500 solver io", StatusCode::INTERNAL_SERVER_ERROR))
     };
-    let text = match tokio::time::timeout(Duration::from_secs(10), io).await {
+    // surge queue: at ~3.5 rps CPU ceiling, 30s covers a 50-conn burst
+    // (p99 18.5s measured); past that shedding to 503 is cheaper than RAM
+    let text = match tokio::time::timeout(Duration::from_secs(30), io).await {
         Ok(r) => r?,
         Err(_) => {
             return Err(deny(&state.logs, "solve 503 solver timeout", StatusCode::SERVICE_UNAVAILABLE));
