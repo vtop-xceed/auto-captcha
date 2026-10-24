@@ -1,13 +1,20 @@
 #!/bin/sh
 
-# Start the solver in the background
-/app/solver &
+# solver supervisor: stays alive across exec api, restarts on crash so a dead
+# solver is a ~2s blip instead of permanent 503s
+(
+  while :; do
+    /app/solver
+    echo "SOLVER DIED (exit $?), restarting in 2s"
+    sleep 2
+  done
+) &
 
-# Wait for the socket to be created
-while [ ! -S /tmp/captop-solver.sock ]; do
+n=0
+while [ ! -S /tmp/captop-solver.sock ] && [ "$n" -lt 30 ]; do
   echo "Waiting for solver socket..."
   sleep 1
+  n=$((n + 1))
 done
 
-# Start the API
 exec /app/api

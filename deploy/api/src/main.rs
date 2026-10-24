@@ -314,8 +314,11 @@ async fn download_malformed(State(state): State<Arc<AppState>>) -> Result<Respon
     Ok(resp)
 }
 
-async fn health() -> StatusCode {
-    StatusCode::OK
+async fn health(State(state): State<Arc<AppState>>) -> StatusCode {
+    match UnixStream::connect(&state.solver_socket).await {
+        Ok(_) => StatusCode::OK,
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE,
+    }
 }
 
 const LOG_CAP: usize = 10_000;
