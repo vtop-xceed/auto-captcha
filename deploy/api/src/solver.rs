@@ -33,6 +33,12 @@ async fn main() {
         .map(|_| {
             let session = Session::builder(&env)
                 .unwrap()
+                // ponytail: 1 thread per session; default scales to host cores,
+                // which explodes Linux CFS quota on a 0.1 vCPU shared slice
+                .with_intra_threads(1)
+                .unwrap()
+                .with_inter_threads(1)
+                .unwrap()
                 .with_optimization_level(GraphOptimizationLevel::Level3)
                 .unwrap()
                 .commit_from_file(&model_path)
