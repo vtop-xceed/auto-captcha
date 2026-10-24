@@ -14,9 +14,11 @@ permissions:
 jobs:
   # Preserve live captured data before anything else: fetch the malformed zip
   # and archive it via PR, then train on the already-merged labeled dataset.
+  # Non-fatal: an auth hiccup on the live host must not block a retrain month.
   fetch-malformed:
     uses: ./.github/workflows/fetch-malformed.yml
     secrets: inherit
+    continue-on-error: true
 
   train:
     needs: [fetch-malformed]
