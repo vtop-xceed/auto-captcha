@@ -211,7 +211,7 @@ async fn solve(
                 StatusCode::INTERNAL_SERVER_ERROR
             })
     };
-    let text = match tokio::time::timeout(Duration::from_secs(30), io).await {
+    let text = match tokio::time::timeout(Duration::from_secs(10), io).await {
         Ok(r) => r?,
         Err(_) => {
             state.logs.served_failure();
