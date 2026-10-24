@@ -126,8 +126,7 @@ fn authorized(password: &str, headers: &HeaderMap) -> bool {
     };
     creds
         .split_once(':')
-        .map(|(_, pass)| ct_eq(pass, password))
-        .unwrap_or(false)
+        .is_some_and(|(_, pass)| ct_eq(pass, password))
 }
 
 // same 64 iterations always, so response timing can't leak password bytes;
