@@ -160,8 +160,7 @@ async fn solve(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<SolveRequest>,
 ) -> Result<Json<SolveResponse>, StatusCode> {
-    let now = now_secs();
-    state.logs.log_request(now);
+    state.logs.log_request();
     let image_data = match STANDARD.decode(&payload.image) {
         Ok(d) => d,
         Err(_) => {
@@ -379,9 +378,9 @@ impl Logs {
         self.failed.fetch_add(1, Ordering::Relaxed);
     }
 
-    fn log_request(&self, now: u64) {
+    fn log_request(&self) {
         let mut times = self.times.lock().unwrap();
-        times.push_back(now);
+        times.push_back(now_secs());
         while times.len() > TIMELINE_MAX_ENTRIES {
             times.pop_front();
         }
@@ -543,7 +542,7 @@ mod tests {
         let empty = serde_json::from_slice::<serde_json::Value>(&logs.snapshot().0).unwrap();
         assert!(empty.as_array().unwrap().is_empty());
         logs.log("x".into());
-        logs.log_request(now_secs());
+        logs.log_request();
         let (arr, times) = logs.snapshot();
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&arr)
