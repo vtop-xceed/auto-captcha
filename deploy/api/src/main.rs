@@ -133,11 +133,11 @@ fn authorized(password: &str, headers: &HeaderMap) -> bool {
 // ponytail: compares only the first 64 bytes — passwords that long truncate-match
 fn ct_eq(a: &str, b: &str) -> bool {
     let (a, b) = (a.as_bytes(), b.as_bytes());
-    let mut d = 0u8;
+    let mut d = (a.len() != b.len()) as u8;
     for i in 0..64 {
         d |= a.get(i).copied().unwrap_or(0) ^ b.get(i).copied().unwrap_or(0);
     }
-    d | ((a.len() ^ b.len()) as u8) == 0
+    d == 0
 }
 
 fn valid_report_name(name: &str) -> bool {
@@ -506,6 +506,9 @@ mod tests {
         assert!(!ct_eq("pw", "pw1"));
         assert!(!ct_eq("pw", "p"));
         assert!(!ct_eq("p", "pw"));
+        // prefix match + enough padding bytes to wrap the old u8 len-fold
+        let px = "pw".to_string() + &"\0".repeat(63) + &"x".repeat(256);
+        assert!(!ct_eq("pw", &px));
     }
 
     #[test]
