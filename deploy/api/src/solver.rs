@@ -65,13 +65,11 @@ async fn handle_connection(
     mut stream: tokio::net::UnixStream,
     session: &Arc<Mutex<Session>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Read 4-byte length prefix (little-endian u32)
-    let len = stream.read_u32_le().await?;
+    let len = stream.read_u32_le().await?; // LE u32, matches api's prefix write
     if len > MAX_IMAGE_BYTES {
         return Err(format!("image too large: {len}B").into());
     }
 
-    // Read image bytes
     let mut image_data = vec![0u8; len as usize];
     stream.read_exact(&mut image_data).await?;
 
@@ -98,7 +96,6 @@ async fn handle_connection(
         Err(_) => String::from("?"),
     };
 
-    // Write result back
     stream.write_all(text.as_bytes()).await?;
     stream.shutdown().await?;
 
