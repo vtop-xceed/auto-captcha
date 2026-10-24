@@ -4,7 +4,7 @@ use axum::{
     http::{self, HeaderMap, HeaderValue, StatusCode, header},
     body::Bytes,
     middleware::{self, Next},
-    response::{Html, IntoResponse, Response},
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -392,18 +392,35 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-// report page + its data are public and rendered client-side (see report.html)
-async fn report_page() -> Html<&'static str> {
-    Html(include_str!("report.html"))
+const CACHE: &str = "public, max-age=300";
+
+// report page + assets are compile-time statics; only its data is live
+async fn report_page() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+            (header::CACHE_CONTROL, CACHE),
+        ],
+        include_str!("report.html"),
+    )
 }
 
 async fn report_css() -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, "text/css")], include_str!("report.css"))
+    (
+        [
+            (header::CONTENT_TYPE, "text/css"),
+            (header::CACHE_CONTROL, CACHE),
+        ],
+        include_str!("report.css"),
+    )
 }
 
 async fn report_js() -> impl IntoResponse {
     (
-        [(header::CONTENT_TYPE, "application/javascript")],
+        [
+            (header::CONTENT_TYPE, "application/javascript"),
+            (header::CACHE_CONTROL, CACHE),
+        ],
         include_str!("report.js"),
     )
 }
