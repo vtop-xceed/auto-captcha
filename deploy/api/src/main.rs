@@ -39,7 +39,9 @@ struct AppState {
     logs: Arc<Logs>,
 }
 
-#[tokio::main]
+// ponytail: current_thread runtime; multi-thread scales workers to host cores,
+// which burns stack memory and causes context switching on a 0.1 vCPU share
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     let logs = Arc::new(Logs::new());
     let state = Arc::new(AppState {

@@ -14,7 +14,9 @@ const SOCKET_PATH: &str = "/tmp/captop-solver.sock";
 // process claiming u32::MAX would otherwise allocate 4GB on first read
 const MAX_IMAGE_BYTES: u32 = 256 * 1024;
 
-#[tokio::main]
+// ponytail: current_thread runtime; multi-thread scales workers to host cores,
+// which burns stack memory and causes context switching on a 0.1 vCPU share
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     // Clean up stale socket
     let _ = std::fs::remove_file(SOCKET_PATH);
