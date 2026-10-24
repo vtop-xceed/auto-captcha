@@ -132,12 +132,12 @@ fn ctc_decode(output: &[f32]) -> String {
         let start = t * vocab_size;
         let logits = &output[start..start + vocab_size];
 
-        let max_logit = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let probs: Vec<f32> = logits.iter().map(|x| (x - max_logit).exp()).collect();
-        let idx = probs
+        // argmax(logits) == argmax(softmax(logits)) — no exp needed
+        let idx = logits
             .iter()
+            .copied()
             .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
             .unwrap()
             .0;
 
