@@ -49,7 +49,13 @@ async fn main() {
     );
 
     loop {
-        let (stream, _) = listener.accept().await.unwrap();
+        // a transient accept failure (fd exhaustion…) must not kill the solver;
+        // unwrap here turned one bad connection into a full outage
+        let Ok((stream, _)) = listener.accept().await else {
+            eprintln!("accept failed, retrying");
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            continue;
+        };
         let i = next.fetch_add(1, Ordering::Relaxed) % sessions.len();
         let session = Arc::clone(&sessions[i]);
 
@@ -80,15 +86,21 @@ async fn handle_connection(
             // CPU-heavy part across connections
             let session = session.clone();
             tokio::task::spawn_blocking(move || {
+                // "!" marks internal failure (api answers 500), "?" marks
+                // undecodable input (api answers 400) — neither fakes a result
                 run_inference(tensor, session).unwrap_or_else(|e| {
                     eprintln!("Solver inference error: {e}");
-                    // "!" marks an internal failure — api answers 500, distinct
-                    // from "?" (undecodable input) so neither fakes a result
                     "!".into()
                 })
             })
+            // a panic inside run_inference must also become "!", not an early
+            // return — the open stream would EOF and the api would serve a
+            // fake empty-captcha 200
             .await
-            .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(format!("solver join: {e}")))?
+            .unwrap_or_else(|e| {
+                eprintln!("Solver task error: {e}");
+                "!".into()
+            })
         }
         // api can't tell EOF-errors from a legit empty CTC decode, so decode
         // failures get a marker character instead of silence ("?" is outside
@@ -148,7 +160,7 @@ fn ctc_decode(output: &[f32]) -> String {
             .iter()
             .copied()
             .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .max_by(|a, b| a.1.total_cmp(&b.1))
             .unwrap()
             .0;
 
