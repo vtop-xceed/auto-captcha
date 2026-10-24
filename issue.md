@@ -115,8 +115,9 @@ Or set `tokio::runtime::Builder::new_multi_thread().worker_threads(1)`.
 | Zero-Copy / Single Decode | Optimized | Image decoded once in solver; api pass-through. |
 | CTC Decoding | Optimized | Argmax on raw logits; no `exp()` or heap vecs. |
 | Report Page Polling | Optimized | Atomic `perm` cached JSON bytes. |
-| ORT Internal Threading | **Unoptimized** | Defaults to host cores; needs `.with_intra_threads(1)`. |
-| Image Resizing | **Unoptimized** | Runs Lanczos3 on 200x40 images that are already 200x40. |
-| Zip Compression | **Unoptimized** | Bzip2 on PNGs wastes up to 2s of 0.1 vCPU time. |
-| Backpressure & Queueing | **Unoptimized** | Infinite queue + uncancelable zombie solves. |
-| Tokio Runtime Profile | **Sub-optimal** | Multi-threaded default on host cores for both binaries. |
+| ORT Internal Threading | Fixed (`9d61793`) | Pinned to `.with_intra_threads(1)` and `.with_inter_threads(1)`. |
+| Image Resizing | Fixed (`58b1c08`) | Bypasses resize for native 200x40 images (100% of captchas). |
+| Zip Compression | Fixed (`cd6c488`) | Uses `Stored` compression on PNGs; dropped `bzip2` dependency. |
+| Preprocess Blocking | Fixed (`3a3e6ba`) | Image decode moved into `spawn_blocking` alongside inference. |
+| Tokio Runtime Profile | Fixed (`5e63810`) | Switched to `current_thread` single-worker runtime on sub-core. |
+| Backpressure & Queueing | Fixed (`2f56db3`) | Re-introduced 30s timeout on exchange to shed zombie solves. |
