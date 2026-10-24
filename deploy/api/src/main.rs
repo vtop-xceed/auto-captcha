@@ -423,34 +423,20 @@ fn now_millis() -> u128 {
 const CACHE: &str = "public, max-age=300";
 
 // report page + assets are compile-time statics; only its data is live
+fn asset(ct: &'static str, body: &'static str) -> impl IntoResponse {
+    ([(header::CONTENT_TYPE, ct), (header::CACHE_CONTROL, CACHE)], body)
+}
+
 async fn report_page() -> impl IntoResponse {
-    (
-        [
-            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
-            (header::CACHE_CONTROL, CACHE),
-        ],
-        include_str!("report.html"),
-    )
+    asset("text/html; charset=utf-8", include_str!("report.html"))
 }
 
 async fn report_css() -> impl IntoResponse {
-    (
-        [
-            (header::CONTENT_TYPE, "text/css"),
-            (header::CACHE_CONTROL, CACHE),
-        ],
-        include_str!("report.css"),
-    )
+    asset("text/css", include_str!("report.css"))
 }
 
 async fn report_js() -> impl IntoResponse {
-    (
-        [
-            (header::CONTENT_TYPE, "application/javascript"),
-            (header::CACHE_CONTROL, CACHE),
-        ],
-        include_str!("report.js"),
-    )
+    asset("application/javascript", include_str!("report.js"))
 }
 
 async fn report_data(State(state): State<Arc<AppState>>) -> Response {
