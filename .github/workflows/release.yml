@@ -29,8 +29,7 @@ jobs:
           context: .
           file: deploy/Dockerfile
           push: true
-          build-args: |
-            AUTH_PASSWORD=${{ secrets.AUTH_PASSWORD }}
+          # AUTH_PASSWORD is runtime env on the host, never a build-arg
           tags: |
-            ghcr.io/${{ github.repository_owner }}/auto-captcha-api:${{ github.ref_name }}
-            ghcr.io/${{ github.repository_owner }}/auto-captcha-api:latest
+            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}:latest
