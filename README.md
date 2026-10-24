@@ -37,28 +37,29 @@ docker compose -f deploy/docker-compose.yml up -d --build
 ## Endpoints
 
 - `POST /solve` - body `{"image": "<base64>"}` -> `{"text": "..."}`.
-  Undecodable images are saved to `reports/` and rejected with 400.
-- `GET /health` - 200.
-- `GET /report` - browser popup (HTTP Basic): the API status page -
-  uptime, total requests, a 30-day requests/day timeline, and the last
-  500 collected events, auto-refresh 5s. Images land in `REPORT_DIR`
-  (default `reports/`, persistent volume in compose). An empty
-  `AUTH_PASSWORD` disables the whole page (404).
-- `GET /malformed` - same basic auth. Streams a highly compressed zip of
-  every saved image and then deletes them from the server, so each
-  malformed batch is fetched exactly once. Monthly pipeline hook:
+  Undecodable images are saved to `reports/` and rejected with 400, capped
+  so a flood cannot fill the disk.
+- `GET /health` - 200 when the solver is up, 503 otherwise.
+- `GET /report` - public, no auth: the API status page - uptime, counters,
+  request timeline, newest-first event log, auto-refresh 5s. Images land
+  in `REPORT_DIR` (default `reports/`, persistent volume in compose).
+- `GET /malformed` - HTTP Basic (`AUTH_PASSWORD`). Streams a
+  highly compressed zip of every saved image and then deletes them from
+  the server, so each malformed batch is fetched exactly once. Monthly
+  pipeline hook:
   `curl -u admin:$PASSWORD -o malformed-$(date +%F).zip https://host/malformed`
-  -> relabel -> `training/train.py` -> rebuild image.
+  -> relabel -> `training/train/train.py` -> rebuild image.
 
-`AUTH_PASSWORD` is baked into the Docker image via a GitHub Actions
-secret (`build-args` in release.yml). Anyone who can pull the image can
-read it with `docker inspect` - treat it as a trivial gate, not security.
+`AUTH_PASSWORD` comes from the runtime environment (Render dashboard /
+compose `environment:`), never baked into the image. It only gates
+`/malformed`; unset disables that endpoint entirely (fail-closed 404).
 
 Train a model (the export lands in `deploy/` so the image build picks it up):
 
 ```sh
 pip install -r training/requirements.txt
-python training/train.py           # trains + exports deploy/captcha_model.onnx(+.data)
+MODEL_PATH=deploy/captcha_model.onnx cargo run --bin solver   # from deploy/api
+python training/train/train.py      # trains + exports deploy/captcha_model.onnx(+.data)
 python training/decode_captchas.py
 ```
 
