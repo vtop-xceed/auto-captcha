@@ -82,16 +82,15 @@ async fn handle_connection(
             // CPU-heavy part across connections
             let session = session.clone();
             tokio::task::spawn_blocking(move || {
-                let input = Tensor::from_array(tensor)?;
-                let mut session = session.lock().unwrap();
-                let outputs = session.run(ort::inputs!["image" => input])?;
-                let (_, raw) = outputs["output"].try_extract_tensor::<f32>()?;
-                Ok::<_, Box<dyn std::error::Error + Send + Sync>>(ctc_decode(raw))
+                run_inference(tensor, session).unwrap_or_else(|e| {
+                    eprintln!("Solver inference error: {e}");
+                    // "!" marks an internal failure — api answers 500, distinct
+                    // from "?" (undecodable input) so neither fakes a result
+                    "!".into()
+                })
             })
             .await
-            .map_err(|e| e.to_string())
-            .and_then(|r| r.map_err(|e| e.to_string()))
-            .map_err(|msg| Box::<dyn std::error::Error + Send + Sync>::from(format!("solver session: {msg}")))?
+            .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(format!("solver join: {e}")))?
         }
         // api can't tell EOF-errors from a legit empty CTC decode, so decode
         // failures get a marker character instead of silence ("?" is outside
@@ -104,6 +103,17 @@ async fn handle_connection(
     stream.shutdown().await?;
 
     Ok(())
+}
+
+fn run_inference(
+    tensor: Array4<f32>,
+    session: Arc<Mutex<Session>>,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let input = Tensor::from_array(tensor)?;
+    let mut session = session.lock().unwrap();
+    let outputs = session.run(ort::inputs!["image" => input])?;
+    let (_, raw) = outputs["output"].try_extract_tensor::<f32>()?;
+    Ok(ctc_decode(raw))
 }
 
 fn preprocess(data: &[u8]) -> Result<Array4<f32>, Box<dyn std::error::Error + Send + Sync>> {

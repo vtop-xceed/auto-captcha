@@ -205,6 +205,14 @@ async fn solve(
         }
     };
 
+    // solver marks internal failures with "!"; EOF can no longer fake an
+    // empty-success decode
+    if text == "!" {
+        state.logs.served_failure();
+        state.logs.log("solve 500 solver err".into());
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
     // solver marks undecodable input with "?" (outside its output alphabet)
     if text == "?" {
         state.logs.served_failure();
