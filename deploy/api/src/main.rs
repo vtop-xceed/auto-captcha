@@ -278,18 +278,19 @@ async fn download_malformed(State(state): State<Arc<AppState>>) -> Result<Respon
     let names = names.split_off(start);
     let total_files = start + names.len();
 
-    let buf = Cursor::new(Vec::new());
-    let mut zip = ZipWriter::new(buf);
-    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Bzip2);
-
+    // files off the wire first; zipping up to 64×256KB bzip2 is seconds of CPU,
+    // sync work used to stall a tokio worker mid-handler
+    let mut files = Vec::with_capacity(names.len());
     for name in &names {
         let data = tokio::fs::read(format!("{}/{}", state.report_dir, name))
             .await
             .map_err(|_| e500())?;
-        zip.start_file(name.as_str(), options).map_err(|_| e500())?;
-        zip.write_all(&data).map_err(|_| e500())?;
+        files.push((name.clone(), data));
     }
-    let buf = zip.finish().map_err(|_| e500())?;
+    let buf = tokio::task::spawn_blocking(move || build_zip(files))
+        .await
+        .map_err(|_| e500())?
+        .map_err(|_| e500())?;
 
     for name in &names {
         let _ = tokio::fs::remove_file(format!("{}/{}", state.report_dir, name)).await;
@@ -299,7 +300,7 @@ async fn download_malformed(State(state): State<Arc<AppState>>) -> Result<Respon
     state
         .logs
         .log(format!("purged {} images into zip", names.len()));
-    let mut resp = (StatusCode::OK, buf.into_inner()).into_response();
+    let mut resp = (StatusCode::OK, buf).into_response();
     resp.headers_mut().insert(
         http::header::CONTENT_TYPE,
         HeaderValue::from_static("application/zip"),
@@ -318,6 +319,17 @@ async fn download_malformed(State(state): State<Arc<AppState>>) -> Result<Respon
         ));
     }
     Ok(resp)
+}
+
+// sync zip build for spawn_blocking
+fn build_zip(files: Vec<(String, Vec<u8>)>) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Bzip2);
+    for (name, data) in &files {
+        zip.start_file(name.as_str(), options)?;
+        zip.write_all(data)?;
+    }
+    Ok(zip.finish()?.into_inner())
 }
 
 async fn health(State(state): State<Arc<AppState>>) -> StatusCode {
