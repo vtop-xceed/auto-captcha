@@ -141,7 +141,13 @@ fn preprocess(data: &[u8]) -> Result<Array4<f32>, Box<dyn std::error::Error + Se
         .decode()?;
 
     let gray = img.to_luma8();
-    let resized = image::imageops::resize(&gray, 200, 40, image::imageops::FilterType::Lanczos3);
+    // ponytail: VTOP captchas are natively 200x40; skip the heavy Lanczos3 sinc
+    // filter unless an unexpected aspect ratio actually needs resampling
+    let resized = if gray.dimensions() == (200, 40) {
+        gray
+    } else {
+        image::imageops::resize(&gray, 200, 40, image::imageops::FilterType::Triangle)
+    };
 
     let normalized: Vec<f32> = resized
         .iter()
@@ -215,5 +221,25 @@ mod tests {
     fn ctc_decode_repeats_needing_separator() {
         let output = output_with(&[(0, 1), (1, 0), (2, 1)]);
         assert_eq!(ctc_decode(&output), "00");
+    }
+
+    #[test]
+    fn preprocess_handles_native_and_scaled_images() {
+        use image::{ImageBuffer, Rgb};
+        let native = ImageBuffer::from_pixel(200, 40, Rgb([128u8, 128, 128]));
+        let mut native_bytes = Vec::new();
+        image::DynamicImage::ImageRgb8(native)
+            .write_to(&mut Cursor::new(&mut native_bytes), image::ImageFormat::Png)
+            .unwrap();
+        let arr = preprocess(&native_bytes).unwrap();
+        assert_eq!(arr.shape(), &[1, 1, 40, 200]);
+
+        let scaled = ImageBuffer::from_pixel(100, 20, Rgb([128u8, 128, 128]));
+        let mut scaled_bytes = Vec::new();
+        image::DynamicImage::ImageRgb8(scaled)
+            .write_to(&mut Cursor::new(&mut scaled_bytes), image::ImageFormat::Png)
+            .unwrap();
+        let arr2 = preprocess(&scaled_bytes).unwrap();
+        assert_eq!(arr2.shape(), &[1, 1, 40, 200]);
     }
 }
