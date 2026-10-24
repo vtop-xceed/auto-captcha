@@ -321,7 +321,9 @@ async fn download_malformed(State(state): State<Arc<AppState>>) -> Result<Respon
 // sync zip build for spawn_blocking
 fn build_zip(files: Vec<(String, Vec<u8>)>) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
-    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Bzip2);
+    // ponytail: stored (no compression); images are already png-compressed,
+    // recompressing with bzip2 burned seconds of cpu for zero byte reduction
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
     for (name, data) in &files {
         zip.start_file(name.as_str(), options)?;
         zip.write_all(data)?;
@@ -560,4 +562,17 @@ mod tests {
         assert_eq!(times, times2);
     }
 
+    #[test]
+    fn build_zip_produces_readable_archive() {
+        let files = vec![
+            ("test1.png".to_string(), vec![1, 2, 3, 4]),
+            ("test2.png".to_string(), vec![5, 6, 7, 8]),
+        ];
+        let bytes = build_zip(files).unwrap();
+        assert!(!bytes.is_empty());
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+        assert_eq!(archive.len(), 2);
+        assert_eq!(archive.by_index(0).unwrap().name().unwrap(), "test1.png");
+        assert_eq!(archive.by_index(1).unwrap().name().unwrap(), "test2.png");
+    }
 }
