@@ -23,15 +23,16 @@ Every `model-refresh` run upserts a row here via `update_chart.py` (charts show 
 | Date | Images | Test accuracy % |
 |---|---|---|
 | 2026-10-23 | 995 | - |
+| 2026-10-24 | 3929 | 0 |
 <!-- /deploys-table -->
 
 <!-- chart:images -->
 ```mermaid
 xychart-beta
     title "Dataset size per deploy"
-    x-axis [2026-10-23]
-    y-axis "images" 0 --> 1095
-    bar [995]
+    x-axis [2026-10-23, 2026-10-24]
+    y-axis "images" 0 --> 4322
+    bar [995, 3929]
 ```
 <!-- /chart:images -->
 
@@ -39,9 +40,9 @@ xychart-beta
 ```mermaid
 xychart-beta
     title "Test accuracy per deploy"
-    x-axis [2026-10-23]
+    x-axis [2026-10-23, 2026-10-24]
     y-axis "accuracy" 0 --> 100
-    bar []
+    bar [0]
 ```
 <!-- /chart:accuracy -->
 
