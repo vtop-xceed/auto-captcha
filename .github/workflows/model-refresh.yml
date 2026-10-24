@@ -63,17 +63,6 @@ jobs:
             exit 1
           fi
 
-      - name: Record deploy row in README (dataset size + accuracy graph)
-        run: |
-          COUNT=$(ls training/data/captchas 2>/dev/null | grep -ciE "\.(jpg|png)$"); COUNT=${COUNT:-0}
-          ACC="${{ steps.eval.outputs.acc }}"
-          python training/train/update_chart.py "$COUNT" "${ACC:--}"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add training/README.md
-          git commit -m "chart: $(date +%F) images=$COUNT acc=$ACC%" || echo "README unchanged"
-          git push
-
       - name: Push image to GHCR
         run: |
           echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
@@ -90,6 +79,20 @@ jobs:
         run: curl -sSf -X POST "$RENDER_DEPLOY_HOOK_URL"
         env:
           RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+
+      - name: Record deploy row in README (dataset size + accuracy graph)
+        # bookkeeping only — rebase before push and never fail the run for it
+        continue-on-error: true
+        run: |
+          COUNT=$(ls training/data/captchas 2>/dev/null | grep -ciE "\.(jpg|png)$"); COUNT=${COUNT:-0}
+          ACC="${{ steps.eval.outputs.acc }}"
+          python training/train/update_chart.py "$COUNT" "${ACC:--}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add training/README.md
+          git commit -m "chart: $(date +%F) images=$COUNT acc=$ACC%" || echo "README unchanged"
+          git pull --rebase origin main || git rebase --abort || true
+          git push || echo "chart push skipped (race with newer main)"
 
       - uses: actions/upload-artifact@v4
         with:
