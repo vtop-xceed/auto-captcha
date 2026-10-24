@@ -13,7 +13,7 @@ use std::collections::VecDeque;
 use std::io::{Cursor, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 use tower_http::cors::{Any, CorsLayer};
@@ -200,14 +200,10 @@ async fn solve(
             .map(|_| text)
             .map_err(|_| deny(&state.logs, "solve 500 solver io", StatusCode::INTERNAL_SERVER_ERROR))
     };
-    // surge queue: at ~3.5 rps CPU ceiling, 30s covers a 50-conn burst
-    // (p99 18.5s measured); past that shedding to 503 is cheaper than RAM
-    let text = match tokio::time::timeout(Duration::from_secs(30), io).await {
-        Ok(r) => r?,
-        Err(_) => {
-            return Err(deny(&state.logs, "solve 503 solver timeout", StatusCode::SERVICE_UNAVAILABLE));
-        }
-    };
+    // no exchange timeout: requests queue as long as it takes (owner's call —
+    // solver supervisor restarts dead solvers in ~2s, which also unblocks any
+    // wedged exchanges via socket errors)
+    let text = io.await?;
 
     // solver marks internal failures with "!"; EOF can no longer fake an
     // empty-success decode
