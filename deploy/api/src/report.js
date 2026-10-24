@@ -73,15 +73,6 @@ function granularity(range, uptime) {
   }
 }
 
-function bucketCounts(times, now, secsPer, n) {
-  const b = new Array(n).fill(0);
-  for (const t of times) {
-    const i = Math.floor((now - t) / secsPer);
-    if (i >= 0 && i < n) b[i]++;
-  }
-  return b;
-}
-
 // dot raster: every request is one dot at its exact time, stacked bottom-up in
 // 6px columns, so density reads as height; hover gives the request's timestamp
 function dotSvg(times, now, span) {
@@ -179,8 +170,6 @@ if (location.search.includes("selftest")) {
   const t = daysFuel(2026, 1, 31);
   const pm = new Date(plusMonth(t) * 1000);
   A(pm.toISOString().slice(0, 10) === "2026-02-28", "plusMonth clamp");
-  const b = bucketCounts([now, now, now - 86400, now - 35 * 86400], now, 86400, 60);
-  A(b[0] === 2 && b[1] === 1 && b[35] === 1 && b.reduce((a, c) => a + c, 0) === 4, "buckets");
   const [sp, cnt] = granularity("24h", 3 * 3600);
   A(sp === 3600 && cnt === 24, "granularity 24h fixed");
   const g = granularity("all", 2 * 3600);
