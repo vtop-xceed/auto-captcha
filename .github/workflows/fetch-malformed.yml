@@ -21,13 +21,22 @@ jobs:
       - name: Download malformed zip from live API
         id: fetch
         run: |
-          mkdir -p /tmp/batch
+          # the download PURGES the images server-side (download_malformed removes
+          # what it zips), so the sink must exist before we consume the zip;
+          # HEAD carries no files in this dir, checkout creates no directory
+          mkdir -p training/data/malformed
+          shopt -s nullglob
           # bounded: a hung host connection would burn the job otherwise
           curl -sSf -m 60 --retry 2 --user "admin:${AUTH_PASSWORD}" "${HOST_URL%/}/malformed" -o /tmp/malformed.zip
+          mkdir -p /tmp/batch
           unzip -o -j -d /tmp/batch /tmp/malformed.zip || true # empty month passes through
           find /tmp/batch -type f ! -name '*.png' -delete
           echo "count=$(find /tmp/batch -name '*.png' | wc -l)" >> "$GITHUB_OUTPUT"
-          cp /tmp/batch/*.png training/data/malformed/ 2>/dev/null || true
+          ls /tmp/batch/*.png >/dev/null 2>&1 || exit 0 # empty batch: nothing to ship
+          if ! cp /tmp/batch/*.png training/data/malformed; then
+            echo "::error::cp into training/data/malformed failed — images are now gone from the server; do not mistake a green run for a shipped batch"
+            exit 1
+          fi
         env:
           HOST_URL: ${{ secrets.HOST_URL }}
           AUTH_PASSWORD: ${{ secrets.AUTH_PASSWORD }}
