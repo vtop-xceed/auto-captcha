@@ -104,7 +104,7 @@ jobs:
           git pull --rebase origin main || git rebase --abort || true
           git push || echo "chart push skipped (race with newer main)"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: model-${{ github.run_id }}
           path: |
