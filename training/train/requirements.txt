@@ -6,6 +6,6 @@ pillow
 scikit-learn
 tensorboard
 onnxscript
-onnx==1.22.0
+onnx==1.23.2
 onnxruntime
 requests
