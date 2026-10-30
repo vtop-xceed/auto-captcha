@@ -44,6 +44,10 @@ jobs:
 
       - name: Open PR with new captchas
         if: steps.fetch.outputs.count != '0'
+        # repo setting "Allow GitHub Actions to create and approve pull requests"
+        # may be off; the batch branch is already pushed by the time gh pr
+        # create fails, so keep the run green and say how to open it by hand
+        continue-on-error: true
         run: |
           DATE=$(date +%F)
           BRANCH="data/captchas-${DATE}-${RUN_ID}" # unique per run: cron + chained calls may share a day
@@ -53,6 +57,7 @@ jobs:
           git add training/data/malformed
           git commit -m "malformed: ${DATE} batch (${COUNT} images)"
           git push origin "$BRANCH"
+          echo "::notice::batch branch pushed: $BRANCH — if PR creation is blocked by repo settings, open it via: gh pr create --head $BRANCH --base main"
           gh pr create \
             --title "malformed: ${DATE} batch (${COUNT} images)" \
             --body "Unlabeled malformed captchas fetched from the live API.
