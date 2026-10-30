@@ -156,11 +156,12 @@ fn valid_report_name(name: &str) -> bool {
         && name.ends_with(".png")
 }
 
-// every failure path: accounting + log + status in one place
-fn deny(logs: &Logs, msg: impl std::fmt::Display, code: StatusCode) -> StatusCode {
+// every failure path: accounting + log + json body + status in one place
+// (bare StatusCode renders EMPTY bodies; clients need a parseable error)
+fn deny(logs: &Logs, msg: impl std::fmt::Display, code: StatusCode) -> Response {
     logs.failed.fetch_add(1, Ordering::Relaxed);
     logs.log(msg.to_string());
-    code
+    (code, Json(serde_json::json!({ "error": msg.to_string() }))).into_response()
 }
 
 // bank the capture for the malformed (workflow picks it up next fetch), then 400
@@ -168,7 +169,7 @@ async fn bank_malformed(
     state: &AppState,
     image: &[u8],
     reason: impl std::fmt::Display,
-) -> StatusCode {
+) -> Response {
     let line = match save_malformed_image(&state.report_dir, image).await {
         Some(n) => format!("solve 400 {reason}; saved {n}"),
         None => format!("solve 400 {reason}; report dir full"),
@@ -176,10 +177,13 @@ async fn bank_malformed(
     deny(&state.logs, line, StatusCode::BAD_REQUEST)
 }
 
+// Err is a full Response so failures carry the json body; the size lint
+// fires for exactly that reason, and this is a 0.1-vCPU service not a hot path
+#[allow(clippy::result_large_err)]
 async fn solve(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<SolveRequest>,
-) -> Result<Json<SolveResponse>, StatusCode> {
+) -> Result<Json<SolveResponse>, Response> {
     state.logs.log_request();
     let image_data = match STANDARD.decode(&payload.image) {
         Ok(d) => d,
