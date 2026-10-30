@@ -64,7 +64,9 @@ async fn main() {
 
     let malformed_routes = Router::new()
         .route("/malformed", get(download_malformed))
-        .layer(middleware::from_fn_with_state(state.clone(), basic_auth));
+        // route-scoped: attaching at Router level wedged the auth challenge
+        // onto the shared 404 fallback (report page popped login prompts)
+        .route_layer(middleware::from_fn_with_state(state.clone(), basic_auth));
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -159,6 +161,19 @@ fn deny(logs: &Logs, msg: impl std::fmt::Display, code: StatusCode) -> StatusCod
     logs.failed.fetch_add(1, Ordering::Relaxed);
     logs.log(msg.to_string());
     code
+}
+
+// bank the capture for the malformed (workflow picks it up next fetch), then 400
+async fn bank_malformed(
+    state: &AppState,
+    image: &[u8],
+    reason: impl std::fmt::Display,
+) -> StatusCode {
+    let line = match save_malformed_image(&state.report_dir, image).await {
+        Some(n) => format!("solve 400 {reason}; saved {n}"),
+        None => format!("solve 400 {reason}; report dir full"),
+    };
+    deny(&state.logs, line, StatusCode::BAD_REQUEST)
 }
 
 async fn solve(
@@ -258,11 +273,18 @@ async fn solve(
 
     // solver marks undecodable input with "?" (outside its output alphabet)
     if text == "?" {
-        let line = match save_malformed_image(&state.report_dir, &image_data).await {
-            Some(n) => format!("solve 400 malformed; saved {n}"),
-            None => "solve 400 malformed; report dir full".into(),
-        };
-        return Err(deny(&state.logs, line, StatusCode::BAD_REQUEST));
+        return Err(bank_malformed(&state, &image_data, "undecodable").await);
+    }
+
+    // VTOP captchas are always exactly 6 chars; a different length means the
+    // decode drifted, so bank the capture and refuse instead of serving garbage
+    if text.chars().count() != 6 {
+        return Err(bank_malformed(
+            &state,
+            &image_data,
+            format!("bad length {}", text.chars().count()),
+        )
+        .await);
     }
 
     state.logs.served.fetch_add(1, Ordering::Relaxed);
