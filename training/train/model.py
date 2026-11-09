@@ -45,15 +45,19 @@ def decode_greedy(outputs: torch.Tensor):
 class CaptchaModel(nn.Module):
     def __init__(self, vocab_size):
         super().__init__()
+        # ponytail: Dropout2d after pools — CNN had zero regularization,
+        # overfits on 3.9k images. Upgrade path: tune rates per dataset size.
         self.cnn = nn.Sequential(
             nn.Conv2d(1, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.MaxPool2d(2),  # 40x200 -> 20x100
+            nn.Dropout2d(0.1),
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.MaxPool2d(2),  # 20x100 -> 10x50
+            nn.Dropout2d(0.1),
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
             nn.BatchNorm2d(256),
             nn.ReLU(),
@@ -61,10 +65,12 @@ class CaptchaModel(nn.Module):
             nn.BatchNorm2d(256),
             nn.ReLU(),
             nn.MaxPool2d((2, 1)),  # 10x50 -> 5x50
+            nn.Dropout2d(0.2),
             nn.Conv2d(256, 512, kernel_size=3, padding=1),
             nn.BatchNorm2d(512),
             nn.ReLU(),
             nn.MaxPool2d((2, 1)),  # 5x50 -> 2x50
+            nn.Dropout2d(0.2),
         )
         self.rnn = nn.GRU(
             1024, 256, bidirectional=True, batch_first=True,

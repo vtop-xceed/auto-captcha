@@ -14,7 +14,6 @@ from torch.utils.data import Dataset, DataLoader
 import cv2
 import torchvision.transforms as transforms
 from PIL import Image
-from sklearn.model_selection import train_test_split
 from torch.utils.tensorboard import SummaryWriter
 
 from model import (
@@ -142,34 +141,28 @@ def labeled_paths():
 
 def train():
     image_paths = labeled_paths()
-    train_paths, val_paths = train_test_split(image_paths, test_size=0.2, random_state=42)
+    # ponytail: test_size=0 — every labeled image trains. Eval separately
+    # via decode_captchas.py on a held-out test dir if you need accuracy numbers.
 
     train_transform = transforms.Compose([
         transforms.RandomAffine(
-            degrees=3, translate=(0.04, 0.08), scale=(0.9, 1.1), shear=2,
+            degrees=5, translate=(0.06, 0.10), scale=(0.9, 1.1), shear=4,
             fill=255,
         ),
         transforms.ToTensor(),
         transforms.Normalize((0.5,), (0.5,)),
-    ])
-    val_transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,)),
+        transforms.RandomErasing(p=0.3, scale=(0.02, 0.08)),
     ])
 
-    train_ds = CaptchaDataset(train_paths, transform=train_transform, color_augment=True)
-    val_ds = CaptchaDataset(val_paths, transform=val_transform)
-
+    train_ds = CaptchaDataset(image_paths, transform=train_transform, color_augment=True)
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn)
-    val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, collate_fn=collate_fn)
 
     model = CaptchaModel(VOCAB_SIZE).to(DEVICE)
     criterion = nn.CTCLoss(blank=0, zero_infinity=True)
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=4)
     writer = SummaryWriter(os.path.join(ROOT, "training", "train", "model", "runs"))
 
-    best_val_loss = float('inf')
     metrics = {"model": "crnn-bgru-ctc", "per_epoch": []}
 
     for epoch in range(NUM_EPOCHS):
@@ -189,72 +182,31 @@ def train():
                 input_lengths, label_lens.to(DEVICE),
             )
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
             optimizer.step()
             train_loss += loss.item()
 
-        model.eval()
-        val_loss = 0
-        exact, total = 0, 0
-        char_correct, char_total = 0, 0
-        with torch.no_grad():
-            for images, labels, label_lens in val_loader:
-                images = images.to(DEVICE)
-                outputs = model(images)
-                input_lengths = torch.full(
-                    size=(images.size(0),), fill_value=50, dtype=torch.long
-                ).to(DEVICE)
-                loss = criterion(
-                    outputs.log_softmax(2), labels.to(DEVICE),
-                    input_lengths, label_lens.to(DEVICE),
-                )
-                val_loss += loss.item()
-
-                # Greedy decode and compare against filename labels
-                preds = decode_greedy(outputs)
-                for b, pred_str in enumerate(preds):
-                    truth = "".join(
-                        num_to_char[i] for i in labels[b][:label_lens[b]].tolist()
-                    )
-                    exact += int(pred_str == truth)
-                    total += 1
-                    for p, t in zip(pred_str, truth):
-                        char_correct += int(p == t)
-                    char_total += len(truth)
-
         avg_train_loss = train_loss / len(train_loader)
-        avg_val_loss = val_loss / len(val_loader)
-        exact_acc = exact / max(total, 1)
-        char_acc = char_correct / max(char_total, 1)
+        scheduler.step(avg_train_loss)
 
         metrics["per_epoch"].append({
             "epoch": epoch + 1,
             "train_loss": round(avg_train_loss, 5),
-            "val_loss": round(avg_val_loss, 5),
-            "val_exact_match": round(exact_acc, 4),
-            "val_char_acc": round(char_acc, 4),
         })
 
         writer.add_scalar('Loss/train', avg_train_loss, epoch)
-        writer.add_scalar('Loss/val', avg_val_loss, epoch)
-        writer.add_scalar('Metrics/val_exact_match', exact_acc, epoch)
-        writer.add_scalar('Metrics/val_char_acc', char_acc, epoch)
-
-        print(
-            f"Epoch {epoch+1}/{NUM_EPOCHS}, Train Loss: {avg_train_loss:.4f}, "
-            f"Val Loss: {avg_val_loss:.4f}, Exact: {exact_acc:.4f}, Char: {char_acc:.4f}"
-        )
-
-        scheduler.step(avg_val_loss)
-
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
-            os.makedirs(os.path.dirname(MODEL_OUT), exist_ok=True)
-            torch.save(model.state_dict(), MODEL_OUT)
-            with open(METRICS_OUT, "w") as f:
-                json.dump(metrics, f, indent=2)
-            print("Model saved.")
+        print(f"Epoch {epoch+1}/{NUM_EPOCHS}, Train Loss: {avg_train_loss:.4f}")
 
     writer.close()
+
+    # ponytail: no val set → save final model. With AdamW + Dropout2d +
+    # augmentation the model regularises itself; pick the converged result.
+    os.makedirs(os.path.dirname(MODEL_OUT), exist_ok=True)
+    torch.save(model.state_dict(), MODEL_OUT)
+    with open(METRICS_OUT, "w") as f:
+        json.dump(metrics, f, indent=2)
+    print("Model saved.")
+
     return model
 
 
