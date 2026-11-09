@@ -17,7 +17,7 @@ from PIL import Image
 from torch.utils.tensorboard import SummaryWriter
 
 from model import (
-    CaptchaModel, VOCAB_SIZE, encode_label, decode_greedy, num_to_char,
+    CaptchaModel, VOCAB_SIZE, encode_label,
 )
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -68,7 +68,7 @@ ONNX_PATH = os.path.join(ROOT, "deploy", "captcha_model.onnx")
 BATCH_SIZE = 16
 IMG_WIDTH = 200
 IMG_HEIGHT = 40
-NUM_EPOCHS = 50
+NUM_EPOCHS = 100
 LEARNING_RATE = 1e-3
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
