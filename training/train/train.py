@@ -68,7 +68,7 @@ ONNX_PATH = os.path.join(ROOT, "deploy", "captcha_model.onnx")
 BATCH_SIZE = 16
 IMG_WIDTH = 200
 IMG_HEIGHT = 40
-NUM_EPOCHS = 100
+NUM_EPOCHS = 80
 LEARNING_RATE = 1e-3
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
